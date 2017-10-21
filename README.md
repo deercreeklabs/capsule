@@ -1,6 +1,6 @@
 # capsule
 
-A semantic layer for tube
+A semantic layer for [deercreeklabs/tube](https://github.com/deercreeklabs/tube)
 
 ## Installation via Leiningen / Clojars:
 
