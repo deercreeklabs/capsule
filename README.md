@@ -4,7 +4,7 @@ A semantic layer for tube
 
 ## Installation via Leiningen / Clojars:
 
-[![Clojars Project](http://clojars.org/deercreeklabs/capsule/latest-version.svg)](http://clojars.org/deercreeklabs/capsule
+[![Clojars Project](http://clojars.org/deercreeklabs/capsule/latest-version.svg)](http://clojars.org/deercreeklabs/capsule)
 
 ## License
 
