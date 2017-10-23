@@ -11,7 +11,7 @@
   :profiles
   {:dev
    {:global-vars {*warn-on-reflection* true}
-    :source-paths ["dev" "src"]
+    :source-paths ["dev" "src" "test"]
     :repl-options {:init-ns user}
     :plugins
     [[lein-ancient "0.6.14"]
@@ -34,15 +34,19 @@
                           [source-map-support "0.4.17"]]}
 
   :dependencies
-  [[binaryage/oops "0.5.6"]
+  [[bidi "2.1.2" :exclusions [commons-codec prismatic/schema]]
+   [binaryage/oops "0.5.6"]
    [com.taoensso/timbre "4.10.0"]
    [deercreeklabs/async-utils "0.1.3"]
    [deercreeklabs/baracus "0.1.0"]
-   [deercreeklabs/lancaster "0.1.2"]
+   [deercreeklabs/lancaster "0.1.3" :exclusions [org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.1"]
    [deercreeklabs/stockroom "0.1.11"]
+   [deercreeklabs/tube "0.1.4"]
    [org.clojure/clojure "1.9.0-beta2"]
-   [org.clojure/clojurescript "1.9.946"]]
+   [org.clojure/clojurescript "1.9.946"]
+   [org.clojure/core.async "0.3.443"]
+   [prismatic/schema "1.1.7"]]
 
   :cljsbuild
   {:builds
