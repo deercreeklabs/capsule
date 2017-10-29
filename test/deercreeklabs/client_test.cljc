@@ -1,7 +1,7 @@
 (ns deercreeklabs.client-test
   (:require
    [clojure.core.async :as ca]
-   [clojure.test :refer [deftest is use-fixtures]]
+   [clojure.test :refer [deftest is]]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
    [deercreeklabs.capsule.calc-api :as calc-api]

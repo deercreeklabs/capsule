@@ -1,5 +1,6 @@
 (ns deercreeklabs.capsule.endpoint
   (:require
+   [deercreeklabs.async-utils :as au]
    [deercreeklabs.capsule.server-connection :as sc]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
@@ -8,31 +9,23 @@
 
 (defprotocol IEndpoint
   (get-path [this])
-  (authenticate-conn [this server-conn identifier credential])
   (on-connect [this tube-conn conn-id])
-  (send-event-to-all-conns [this event])
-  (send-event-to-conn [this conn-id event])
-  (send-event-to-subject-conns [this subject-id event]))
+  (send-event-to-all-conns [this event-name event])
+  (send-event-to-conn [this conn-id event-name event])
+  (send-event-to-subject-conns [this subject-id event-name event]))
 
-(defrecord Endpoint [path authenticator api handlers *conn-id->conn
-                     *subject-id->authenticated-conns]
+(defrecord Endpoint [path authenticator api handlers msg-schema
+                     *conn-id->conn *subject-id->authenticated-conns]
   (get-path [this]
     path)
 
-  (authenticate-conn [this server-conn identifier credential]
-    (when-let [subject-id (authenticator identifier credential)]
-      (swap! *subject-id->authenticated-conns update subject-id
-             (fn [old-conns]
-               (if old-conns
-                 (conj old-conns server-conn)
-                 #{server-conn})))
-      subject-id))
-
   (on-connect [this tube-conn conn-id]
-    (let [server-conn (sc/make-server-connection tube-conn api handlers)]
+    (let [server-conn (sc/make-server-connection
+                       tube-conn api handlers authenticator
+                       *subject-id->authenticated-conns)]
       (swap! *conn-id->conn assoc conn-id server-conn)
       (tc/set-on-rcv tube-conn (fn [tube-conn data]
-                                 (connection/on-rcv server-conn data)))
+                                 (sc/on-rcv server-conn data)))
       (tc/set-on-close tube-conn
                        (fn [tube-conn code reason]
                          (debugf "Connection to %s closing. Code: %s Reason: %s"
@@ -42,23 +35,23 @@
                            (swap! *subject-id->authenticated-conns
                                   dissoc subject-id))))))
 
-  (send-event-to-all-conns [this event]
+  (send-event-to-all-conns [this event-name event]
     ;; TODO: Parallelize this?
     (doseq [[conn-id conn] @*conn-id->conn]
-      (sc/send-event conn event)))
+      (sc/send-event conn event-name event)))
 
-  (send-event-to-conn [this conn-id event]
+  (send-event-to-conn [this conn-id event-name event]
     (let [conn (@*conn-id->conn conn-id)]
-      (sc/send-event conn event)))
+      (sc/send-event conn event-name event)))
 
-  (send-event-to-subject-conns [this subject-id event]
+  (send-event-to-subject-conns [this subject-id event-name event]
     (let [conns (@*subject-id->authenticated-conns subject-id)]
       (doseq [conn conns]
-        (sc/send-event conn event)))))
+        (sc/send-event conn event-name event)))))
 
 (defn default-endpoint-options
   {:path ""
-   :authenticator (constantly nil)})
+   :<authenticator #(au/go false)})
 
 (s/defn make-endpoint :- (s/protocol IEndpoint)
   ([api :- u/Api
@@ -68,8 +61,9 @@
     handlers :- u/HandlerMap
     opts :- u/EndpointOptions]
    (let [opts (merge default-endpoint-options opts)
-         {:keys [path authenticator]} opts
+         {:keys [path <authenticator]} opts
+         msg-schema (get-msg-schema api)
          *conn-id->conn (atom {})
          *subject-id->authenticated-conns (atom {})]
-     (->Endpoint path authenticator api handlers *conn-id->conn
-                 *subject-id->authenticated-conns))))
+     (->Endpoint path <authenticator api handlers msg-schema
+                 *conn-id->conn *subject-id->authenticated-conns))))

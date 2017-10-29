@@ -28,9 +28,10 @@
 (l/def-record-schema request-event-arg-schema
   [:event-name :string])
 
-(def api
-  {:public-rpcs {"calculate" {:arg calculate-req-schema
-                              :ret l/double-schema}}
-   :private-rpcs {"request-event" {:req request-event-arg-schema}}
-   :events {"everybody-shake" everybody-shake-event-schema
-            "custom-event" custom-event-schema}})
+(u/def-api api
+  {:rpcs {:calculate {:arg-schema calculate-arg-schema
+                      :ret-schema l/double
+                      :public? true}
+          :request-event {:arg-schema calculate-arg-schema}}
+   :events {:everybody-shake everybody-shake-schema
+            :custom-event custom-event-schema}})

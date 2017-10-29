@@ -19,7 +19,6 @@
   (stop [this]
     (ts/stop tube-server)))
 
-
 (defn make-route [endpoint]
   (let [path (endpoint/get-path endpoint)
         connection-handler (fn [tube-conn conn-id path]
