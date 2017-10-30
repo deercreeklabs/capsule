@@ -6,49 +6,51 @@
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
-   [deercreeklabs.tube.connection :as tc]))
+   [deercreeklabs.tube.connection :as tc]
+   [schema.core :as s]
+   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
 (defprotocol IServerConnection
   (on-rcv [this tube-conn data])
-  (send-event [this event])
+  (send-event [this event-name event])
   (get-subject-id [this]))
 
-(defn <handle-msg [tube-conn api subject-id handlers k msg-info
+(defn <handle-msg [tube-conn api subject-id handlers endpoint k msg-info
                    client-schema-pcf]
   (au/go
-    (let [{:keys [msg-name msg-id msg]} msg-info]
-      (if-let [<handler (get-in-handlers handlers [k msg-name])]
+    (let [{:keys [msg-type msg-name msg-id msg]} msg-info]
+      (if-let [<handler (get-in handlers [k msg-name])]
         (try
           (let [metadata (u/sym-map subject-id msg-id)
-                rsp (au/<? (<handler msg metadata))]
+                rsp (au/<? (<handler msg endpoint metadata))]
             (when (and (= :rpc-req msg-type) rsp)
               (u/send-msg tube-conn api :rpc-success-rsp msg-name msg-id rsp)))
-          (catch #?(:clj Exception :cljs js/Error) e
-              (let [info {:rpc-name msg-name
-                          :rpc-id-str (ba/byte-array->b64-string msg-id)
-                          :rpc-arg (str msg)
-                          :error-str (lu/get-exception-msg)}]
-                (l/errorf "Exception handling RPC.\nInfo:\n%s\nStacktrace:%s"
-                          info (lu/get-exception-stacktrace e))
-                (u/send-msg tube-conn api :rpc-failure-rsp msg-name
-                            msg-id info))))
+          (catch Exception e
+            (let [info {:rpc-name msg-name
+                        :rpc-id-str (ba/byte-array->b64 msg-id)
+                        :rpc-arg (str msg)
+                        :error-str (lu/get-exception-msg)}]
+              (errorf "Exception handling RPC.\nInfo:\n%s\nStacktrace:%s"
+                      info (lu/get-exception-stacktrace e))
+              (u/send-msg tube-conn api :rpc-failure-rsp msg-name
+                          msg-id info))))
         (errorf "No handler found for %s" (dissoc msg-info :msg))))))
 
 (defn send-schema-pcf [tube-conn api]
   (->> api
        (u/get-msg-schema)
-       (u/get-parsing-canonical-form)
+       (l/get-parsing-canonical-form)
        (l/serialize l/string-schema)
        (tc/send tube-conn)))
 
 (defn <handle-login-req
-  [tube-conn api msg-id msg <authenticator *subject-id
+  [server-conn tube-conn api msg-id msg <authenticator *subject-id
    *subject-id->authenticated-conns]
   (au/go
     (let [{:keys [subject-id credential]} msg
           was-successful (au/<? (<authenticator subject-id credential))]
       (when was-successful
-        (reset *subject-id subject-id)
+        (reset! *subject-id subject-id)
         (swap! *subject-id->authenticated-conns update subject-id
                (fn [old-conns]
                  (if old-conns
@@ -59,7 +61,7 @@
 (defn send-unauthorized-msg [tube-conn api msg-id]
   (u/send-msg tube-conn api :auth :unauthorized msg-id nil))
 
-(defrecord ServerConnection [tube-conn api handlers <authenticator
+(defrecord ServerConnection [tube-conn api handlers endpoint <authenticator
                              *client-schema-pcf *subject-id
                              *subject-id->authenticated-conns]
   IServerConnection
@@ -72,10 +74,10 @@
                 :rpc-req :rpcs
                 :event :events)]
         (if (= :login-req msg-type)
-          (<handle-login-req tube-conn api msg-id msg <authenticator
+          (<handle-login-req this tube-conn api msg-id msg <authenticator
                              *subject-id *subject-id->authenticated-conns)
           (if (or subject-id (get-in api [k msg-name :public?]))
-            (<handle-msg tube-conn api subject-id handlers msg-info k
+            (<handle-msg tube-conn api subject-id handlers endpoint k msg-info
                          client-schema-pcf)
             (send-unauthorized-msg tube-conn api msg-id))))
       (reset! *client-schema-pcf
@@ -89,14 +91,16 @@
 
 (s/defn make-server-connection :- (s/protocol IServerConnection)
   [tube-conn :- u/TubeConn
-   api :- u/Api
+   api :- (s/protocol u/IAPI)
    handlers :- u/HandlerMap
+   endpoint :- s/Any
    <authenticator :- u/Authenticator
    *subject-id->authenticated-conns :- s/Any]
   (let [*client-schema-pcf (atom nil)
         *subject-id (atom nil)
         server-conn (->ServerConnection
-                     tube-conn api handlers <authenticator *client-schema-pcf
-                     *subject-id *subject-id->authenticated-conns)]
+                     tube-conn api handlers endpoint <authenticator
+                     *client-schema-pcf *subject-id
+                     *subject-id->authenticated-conns)]
     (send-schema-pcf tube-conn api)
     server-conn))

@@ -13,6 +13,7 @@
   (stop [this]))
 
 (defrecord CapsuleServer [tube-server]
+  ICapsuleServer
   (start [this]
     (ts/start tube-server))
 
@@ -25,27 +26,27 @@
                              (endpoint/on-connect endpoint tube-conn conn-id))]
     [path connection-handler]))
 
-(defn make-routes [api-impls]
-  ["/" (apply hashmap (mapcat make-route api-impls))])
+(defn make-routes [endpoints]
+  ["/" (apply hash-map (mapcat make-route endpoints))])
 
 (defn make-on-server-connect [routes]
   (fn on-server-connect [conn conn-id path]
     (debugf "Got conn from %s on %s" conn-id path)
     (let [{:keys [handler]} (bidi/match-route routes path)]
-      (if conn-handler
-        (conn-handler conn conn-id path)
+      (if handler
+        (handler conn conn-id path)
         (errorf "No handler matches for path %s" path)))))
 
 (def default-port 8080)
 
 (s/defn make-server :- (s/protocol ICapsuleServer)
-  ([endpoints :- [(protocol u/IEndpoint)]]
-   (run-server endpoints default-port))
-  ([endpoints :- [(protocol u/IEndpoint)]
+  ([endpoints :- [(s/protocol endpoint/IEndpoint)]]
+   (make-server endpoints default-port))
+  ([endpoints :- [(s/protocol endpoint/IEndpoint)]
     port :- s/Int]
    (let [keystore-path (System/getenv "TUBE_JKS_KEYSTORE_PATH")
          keystore-password (System/getenv "TUBE_JKS_KEYSTORE_PASSWORD")
-         routes (make-routes api-impls)
+         routes (make-routes endpoints)
          on-connect (make-on-server-connect routes)
          on-disconnect (fn [conn-id code reason]
                          (debugf "Conn to %s disconnected (Code: %s Reason: %s)"

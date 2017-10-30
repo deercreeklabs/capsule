@@ -6,12 +6,14 @@
   :lein-release {:scm :git
                  :deploy-via :clojars}
 
+  ;; For testing
+  :main deercreeklabs.capsule.calc
   :pedantic? :abort
 
   :profiles
   {:dev
    {:global-vars {*warn-on-reflection* true}
-    :source-paths ["dev" "src" "test"]
+    :source-paths ["dev" "src"]
     :repl-options {:init-ns user}
     :plugins
     [[lein-ancient "0.6.14"]
@@ -36,14 +38,16 @@
   :dependencies
   [[bidi "2.1.2" :exclusions [commons-codec prismatic/schema]]
    [binaryage/oops "0.5.6"]
+   [com.fzakaria/slf4j-timbre "0.3.7"]
    [com.taoensso/timbre "4.10.0"]
    [deercreeklabs/async-utils "0.1.3"]
    [deercreeklabs/baracus "0.1.0"]
-   [deercreeklabs/lancaster "0.1.3" :exclusions [org.slf4j/slf4j-api]]
+   [deercreeklabs/lancaster "0.1.3"
+    :exclusions [org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.1"]
    [deercreeklabs/stockroom "0.1.11"]
-   [deercreeklabs/tube "0.1.4"]
-   [org.clojure/clojure "1.9.0-beta2"]
+   [deercreeklabs/tube "0.1.4" :exclusions [org.slf4j/slf4j-api]]
+   [org.clojure/clojure "1.8.0"]
    [org.clojure/clojurescript "1.9.946"]
    [org.clojure/core.async "0.3.443"]
    [org.clojure/math.numeric-tower "0.0.4"]

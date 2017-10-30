@@ -5,7 +5,8 @@
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
    [deercreeklabs.tube.connection :as tc]
-   [schema.core :as s]))
+   [schema.core :as s]
+   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
 (defprotocol IEndpoint
   (get-path [this])
@@ -16,16 +17,17 @@
 
 (defrecord Endpoint [path authenticator api handlers msg-schema
                      *conn-id->conn *subject-id->authenticated-conns]
+  IEndpoint
   (get-path [this]
     path)
 
   (on-connect [this tube-conn conn-id]
     (let [server-conn (sc/make-server-connection
-                       tube-conn api handlers authenticator
+                       tube-conn api handlers this authenticator
                        *subject-id->authenticated-conns)]
       (swap! *conn-id->conn assoc conn-id server-conn)
       (tc/set-on-rcv tube-conn (fn [tube-conn data]
-                                 (sc/on-rcv server-conn data)))
+                                 (sc/on-rcv server-conn tube-conn data)))
       (tc/set-on-close tube-conn
                        (fn [tube-conn code reason]
                          (debugf "Connection to %s closing. Code: %s Reason: %s"
@@ -49,20 +51,22 @@
       (doseq [conn conns]
         (sc/send-event conn event-name event)))))
 
-(defn default-endpoint-options
+(def default-endpoint-options
   {:path ""
-   :<authenticator #(au/go false)})
+   :<authenticator (fn [subject-id credential]
+                     (au/go
+                       false))})
 
 (s/defn make-endpoint :- (s/protocol IEndpoint)
-  ([api :- u/Api
+  ([api :- (s/protocol u/IAPI)
     handlers :- u/HandlerMap]
    (make-endpoint api handlers default-endpoint-options))
-  ([api :- u/Api
+  ([api :- (s/protocol u/IAPI)
     handlers :- u/HandlerMap
     opts :- u/EndpointOptions]
    (let [opts (merge default-endpoint-options opts)
          {:keys [path <authenticator]} opts
-         msg-schema (get-msg-schema api)
+         msg-schema (u/get-msg-schema api)
          *conn-id->conn (atom {})
          *subject-id->authenticated-conns (atom {})]
      (->Endpoint path <authenticator api handlers msg-schema

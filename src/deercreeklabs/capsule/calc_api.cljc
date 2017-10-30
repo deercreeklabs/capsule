@@ -1,6 +1,5 @@
 (ns deercreeklabs.capsule.calc-api
   (:require
-   [deercreeklabs.capsule :as c]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]))
 
@@ -22,16 +21,14 @@
 (l/def-record-schema everybody-shake-event-schema
   [:duration-ms :int])
 
-(l/def-record-schema custom-event-schema
-  [:map string-map-schema])
-
 (l/def-record-schema request-event-arg-schema
   [:event-name :string])
 
 (u/def-api api
   {:rpcs {:calculate {:arg-schema calculate-arg-schema
-                      :ret-schema l/double
+                      :ret-schema l/double-schema
                       :public? true}
-          :request-event {:arg-schema calculate-arg-schema}}
-   :events {:everybody-shake everybody-shake-schema
-            :custom-event custom-event-schema}})
+          :request-event {:arg-schema l/string-schema
+                          :ret-schema l/boolean-schema}}
+   :events {:everybody-shake everybody-shake-event-schema
+            :custom-event string-map-schema}})
