@@ -15,7 +15,7 @@
   (send-event-to-conn [this conn-id event-name event])
   (send-event-to-subject-conns [this subject-id event-name event]))
 
-(defrecord Endpoint [path authenticator api handlers msg-schema
+(defrecord Endpoint [path <authenticator api roles-to-rpcs handlers msg-schema
                      *conn-id->conn *subject-id->authenticated-conns]
   IEndpoint
   (get-path [this]
@@ -23,7 +23,7 @@
 
   (on-connect [this tube-conn conn-id]
     (let [server-conn (sc/make-server-connection
-                       tube-conn api handlers this authenticator
+                       tube-conn api roles-to-rpcs handlers this <authenticator
                        *subject-id->authenticated-conns)]
       (swap! *conn-id->conn assoc conn-id server-conn)
       (tc/set-on-rcv tube-conn (fn [tube-conn data]
@@ -59,9 +59,11 @@
 
 (s/defn make-endpoint :- (s/protocol IEndpoint)
   ([api :- (s/protocol u/IAPI)
+    roles-to-rpcs :- u/RolesToRpcs
     handlers :- u/HandlerMap]
    (make-endpoint api handlers default-endpoint-options))
   ([api :- (s/protocol u/IAPI)
+    roles-to-rpcs :- u/RolesToRpcs
     handlers :- u/HandlerMap
     opts :- u/EndpointOptions]
    (let [opts (merge default-endpoint-options opts)
@@ -69,5 +71,5 @@
          msg-schema (u/get-msg-schema api)
          *conn-id->conn (atom {})
          *subject-id->authenticated-conns (atom {})]
-     (->Endpoint path <authenticator api handlers msg-schema
+     (->Endpoint path <authenticator api roles-to-rpcs handlers msg-schema
                  *conn-id->conn *subject-id->authenticated-conns))))

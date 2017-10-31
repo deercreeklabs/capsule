@@ -14,7 +14,9 @@
 
 (def Nil (s/eq nil))
 (def AvroSchema (s/protocol deercreeklabs.lancaster.utils/IAvroSchema))
+(def RpcName s/Keyword)
 (def RpcOrEventName s/Keyword)
+(def Role s/Keyword)
 (def Path s/Str)
 (def SubjectId s/Num)
 (def EventDef {RpcOrEventName AvroSchema})
@@ -30,8 +32,7 @@
 (def GetURIsFn (s/=> au/Channel))
 (def RpcDef
   {RpcOrEventName {(s/required-key :arg-schema) AvroSchema
-                   (s/optional-key :ret-schema) AvroSchema
-                   (s/optional-key :public?) s/Bool}})
+                   (s/required-key :ret-schema) AvroSchema}})
 (def ApiInfo
   {(s/optional-key :rpcs) RpcDef
    (s/optional-key :events) EventDef})
@@ -48,7 +49,7 @@
    (s/optional-key :connect-timeout-ms) s/Int
    (s/optional-key :max-reconnect-wait-ms) s/Int})
 (def RpcCallback (s/=> s/Any s/Any))
-(def RPC
+(def RpcInfo
   {:rpc-name s/Str
    :arg s/Any
    :rpc-id ba/ByteArray
@@ -57,6 +58,8 @@
    :timeout-ms s/Num
    :retry-time-ms s/Num
    :failure-time-ms s/Num})
+(def RolesToRpcs
+  {Role #{RpcName}})
 
 (defmacro sym-map
   "Builds a map from symbols.
@@ -71,27 +74,33 @@
 (defn make-msg-id []
   (ba/byte-array (take 16 (repeatedly #(rand-int 256)))))
 
-(defn make-dispatch-name [msg-name msg-type]
+(defn make-record-name [msg-type msg-name]
   (clojure.string/join  "_" ["capsule" (name msg-name) (name msg-type)]))
 
-(defn make-dispatch-sym [msg-name msg-type]
-  (symbol (str (make-dispatch-name msg-name msg-type) "-schema")))
+(defn make-record-name-sym [msg-type msg-name]
+  (symbol (str (make-record-name msg-type msg-name) "-schema")))
 
-(defn dispatch-name->msg-name-and-type [dispatch-name]
-  (let [[capsule msg-name msg-type] (clojure.string/split
-                                     (name dispatch-name) #"_")]
+(defn fq-record-name->msg-name-and-type [fq-record-name]
+  (let [name-parts (clojure.string/split fq-record-name #"\.")
+        record-ns (clojure.string/join "." (butlast name-parts))
+        record-name (last name-parts)
+        [capsule msg-name msg-type] (clojure.string/split
+                                     (name record-name) #"_")]
     [msg-name msg-type]))
 
 (defn encode-msg* [msg-schema msg-info]
   (let [{:keys [msg-type msg-name msg-id msg]} msg-info
-        dispatch-kw (keyword (make-dispatch-name msg-name msg-type))]
-    (l/serialize msg-schema {dispatch-kw {:msg-id msg-id
-                                          :content msg}})))
+        record-name (make-record-name msg-type msg-name)
+        msg-edn-schema (l/get-edn-schema msg-schema)
+        msg-ns (:namespace (first msg-edn-schema))
+        fq-record-name (str msg-ns "." record-name)]
+    (l/serialize msg-schema {fq-record-name {:msg-id msg-id
+                                             :content msg}})))
 
 (defn decode-msg* [msg-schema writer-msg-schema ba]
-  (let [[dispatch-name msg] (first (l/deserialize msg-schema writer-msg-schema
-                                                  ba))
-        [msg-name msg-type] (dispatch-name->msg-name-and-type dispatch-name)]
+  (let [[fq-record-name msg] (first (l/deserialize msg-schema writer-msg-schema
+                                                   ba))
+        [msg-name msg-type] (fq-record-name->msg-name-and-type fq-record-name)]
     {:msg-type (keyword msg-type)
      :msg-name (keyword msg-name)
      :msg-id (:msg-id msg)
@@ -115,76 +124,86 @@
 
 (l/def-fixed-schema msg-id-schema 16)
 
+(l/def-enum-schema rpc-failure-type-schema
+  :unauthorized :server-exception :client-exception)
+
 (l/def-record-schema rpc-failure-info-schema
   [:rpc-name l/string-schema]
   [:rpc-id-str l/string-schema]
   [:rpc-arg l/string-schema]
+  [:failure-type rpc-failure-type-schema]
   [:error-str l/string-schema])
+
+(l/def-record-schema login-info-schema
+  [:subject-id :string]
+  [:credential :string])
 
 (defn send-msg [tube-conn api msg-type msg-name msg-id msg]
   (tc/send tube-conn (encode api (sym-map msg-type msg-name msg-id msg))))
 
 (defn make-rpc-req-schema [[rpc-name rpc-info]]
-  (let [rec-sym (make-dispatch-sym rpc-name :rpc-req)]
+  (let [rec-sym (make-record-name-sym :rpc-req rpc-name)]
     `(l/def-record-schema ~rec-sym
        [:msg-id msg-id-schema]
        [:content ~(:arg-schema rpc-info)])))
 
 (defn make-rpc-success-rsp-schema [[rpc-name rpc-info]]
-  (let [rec-sym (make-dispatch-sym rpc-name :rpc-success-rsp)]
+  (let [rec-sym (make-record-name-sym :rpc-success-rsp rpc-name)]
     `(l/def-record-schema ~rec-sym
        [:msg-id msg-id-schema]
        [:content ~(:ret-schema rpc-info)])))
 
-(defn make-rpc-failure-rsp-schema [[rpc-name rpc-info]]
-  (let [rec-sym (make-dispatch-sym rpc-name :rpc-failure-rsp)]
-    `(l/def-record-schema ~rec-sym
-       [:msg-id msg-id-schema]
-       [:content rpc-failure-info-schema])))
-
 (defn make-event-schema [[event-name event-schema]]
-  (let [rec-sym (make-dispatch-sym event-name :event)]
+  (let [rec-sym (make-record-name-sym :event event-name)]
     `(l/def-record-schema ~rec-sym
        [:msg-id msg-id-schema]
        [:content ~event-schema])))
 
-(defn make-msg-schema [msg-schema-sym api-info]
+(defn make-msg-schema [msg-schema-sym api-info builtin-syms]
   (let [{:keys [rpcs events]} api-info
         rpc-names (keys rpcs)
         event-names (keys events)
-        login-req-sym (make-dispatch-sym :auth :login-req)
-        login-rsp-sym (make-dispatch-sym :auth :login-rsp)
-        rpc-req-syms (map #(make-dispatch-sym % :rpc-req) rpc-names)
-        rpc-success-rsp-syms (map #(make-dispatch-sym % :rpc-success-rsp)
+        rpc-req-syms (map #(make-record-name-sym :rpc-req %) rpc-names)
+        rpc-success-rsp-syms (map #(make-record-name-sym :rpc-success-rsp %)
                                   rpc-names)
-        rpc-failure-rsp-syms (map #(make-dispatch-sym % :rpc-failure-rsp)
-                                  rpc-names)
-        event-syms (map #(make-dispatch-sym % :event) event-names)
-        msg-rec-dispatch-syms (concat [login-req-sym login-rsp-sym]
-                                      rpc-req-syms rpc-success-rsp-syms
-                                      rpc-failure-rsp-syms event-syms)]
+        event-syms (map #(make-record-name-sym :event %) event-names)
+        msg-rec-syms (concat builtin-syms rpc-req-syms rpc-success-rsp-syms
+                             event-syms)]
     `(l/def-union-schema ~msg-schema-sym
-       ~@msg-rec-dispatch-syms)))
+       ~@msg-rec-syms)))
 
 (defmacro def-api [var-name api-info]
   (let [{:keys [rpcs events]} api-info
-        login-req-sym (make-dispatch-sym :auth :login-req)
-        login-rsp-sym (make-dispatch-sym :auth :login-rsp)
+        login-req-sym (make-record-name-sym :login-req :login-req)
+        login-rsp-sym (make-record-name-sym :login-rsp :login-rsp)
+        logout-req-sym (make-record-name-sym :logout-req :logout-req)
+        logout-rsp-sym (make-record-name-sym :logout-rsp :logout-rsp)
+        rpc-failure-sym (make-record-name-sym :rpc-failure-rsp :rpc-failure-rsp)
+        builtin-syms [login-req-sym login-rsp-sym logout-req-sym logout-rsp-sym
+                      rpc-failure-sym]
         rpc-req-schemas (map make-rpc-req-schema rpcs)
         rpc-success-rsp-schemas (map make-rpc-success-rsp-schema rpcs)
-        rpc-failure-rsp-schemas (map make-rpc-failure-rsp-schema rpcs)
         event-schemas (map make-event-schema events)
         msg-schema-sym (gensym "msg-schema")
-        msg-schema (make-msg-schema msg-schema-sym api-info)]
+        msg-schema (make-msg-schema msg-schema-sym api-info builtin-syms)]
     `(do
        (l/def-record-schema ~login-req-sym
-         [:subject-id :string]
-         [:credential :string])
+         [:msg-id msg-id-schema]
+         [:content login-info-schema])
        (l/def-record-schema ~login-rsp-sym
-         [:was-successful :boolean])
+         [:msg-id msg-id-schema]
+         [:content l/boolean-schema])
+       (l/def-record-schema ~logout-req-sym
+         [:msg-id msg-id-schema]
+         [:content l/null-schema])
+       (l/def-record-schema ~logout-rsp-sym
+         [:msg-id msg-id-schema]
+         [:content l/boolean-schema])
+       (l/def-record-schema ~rpc-failure-sym
+         [:msg-id msg-id-schema]
+         [:content rpc-failure-info-schema])
        ~@rpc-req-schemas
        ~@rpc-success-rsp-schemas
-       ~@rpc-failure-rsp-schemas
        ~@event-schemas
        ~msg-schema
        (def ~var-name
@@ -196,7 +215,7 @@
     :output-fn lu/short-log-output-fn
     :appenders
     {:println {:ns-blacklist
-               ["org.apache.*"]}}}))
+               ["org.apache.*" "org.eclipse.jetty.*"]}}}))
 
 (s/defn get-current-time-ms :- s/Num
   []

@@ -20,27 +20,30 @@
                :divide /)]
       (apply op nums))))
 
-(defn handle-request-event [arg endpoint metadata]
+(defn handle-request-event [event-name-str endpoint metadata]
   (au/go
-    (let [{:keys [event-name]} arg
-          event (case event-name
-                  :everybody-shake {:duration-ms 1000}
-                  :custom-event {:map {"Name" "Foo"}})]
-      (endpoint/send-event-to-all-conns endpoint event-name event)
+    (let [event (case event-name-str
+                  "everybody-shake" {:duration-ms 1000}
+                  "custom-event" {:map {"Name" "Foo"}})]
+      (endpoint/send-event-to-all-conns endpoint event-name-str event)
       true)))
 
 (defn <test-authenticate [subject-id credential]
   (au/go
-    (and (= "test" subject-id)
-         (= "test" credential))))
+    (when (and (= "test" subject-id)
+               (= "test" credential))
+      #{:admin})))
 
 (defn -main
   [& args]
   (u/configure-logging)
   (let [handlers {:rpcs {:calculate handle-calculate
                          :request-event handle-request-event}}
+        roles-to-rpcs {:public #{:calculate}
+                       :admin #{:request-event}}
         endpoint-opts {:path "calc"
                        :<authenticator <test-authenticate}
-        endpoint (endpoint/make-endpoint calc-api/api handlers endpoint-opts)
+        endpoint (endpoint/make-endpoint calc-api/api roles-to-rpcs handlers
+                                         endpoint-opts)
         server (cs/make-server [endpoint])]
     (cs/start server)))

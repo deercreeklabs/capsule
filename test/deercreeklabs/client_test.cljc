@@ -18,7 +18,7 @@
 
 (defn <get-uris []
   (au/go
-    "http://localhost:8080/calc"))
+    ["wss://chadlaptop.f1shoppingcart.com:8080/calc"]))
 
 (deftest test-calculate
   (au/test-async
@@ -26,34 +26,44 @@
    (ca/go
      (let [client (cc/make-client calc-api/api <get-uris)
            arg {:nums [1 2 3]
-                :operator :add}]
-       (is (= 67 (cc/<send-rpc client "calculate" arg)))))))
+                :operator :add}
+           expected {:error nil
+                     :result 6.0}]
+       (try
+         (is (= expected (au/<? (cc/<send-rpc client "calculate" arg))))
+         (finally
+           (cc/shutdown client)))))))
 
-#_
 (deftest test-request-event-not-authenticated
   (au/test-async
    1000
    (ca/go
      (let [client (cc/make-client calc-api/api <get-uris)
-           arg {:event-name "everybody-shake"}]
+           expected {}]
        (try
-         (au/<? (cc/<send-rpc client "request-event" arg))
-         (is (= :did-not-throw true))
-         (catch #?(:clj Exception :cljs js/Error) e
-             (is (= :foo e))))))))
+         (let [rsp (au/<? (cc/<send-rpc client
+                                        "request-event" "everybody-shake"))
+               {:keys [error result]} rsp]
+           (is (nil? result))
+           (is (= "Unauthorized RPC to :request-event"
+                  (subs error 0 34))))
+         (finally
+           (cc/shutdown client)))))))
 
-#_
 (deftest test-request-event-authenticated
   (au/test-async
    1000
    (ca/go
      (let [opts {:subject-id "test"
-                 :credential "test!"}
-           client (cc/make-client calc-api/api)
-           event-name "everybody-shake"
-           arg {:event-name event-name}
+                 :credential "test"}
+           client (cc/make-client calc-api/api <get-uris opts)
+           event-name :everybody-shake
            event-ch (ca/chan)
            event-handler #(ca/put! event-ch %)]
-       (cc/bind-event client event-name event-handler)
-       (is (= :foo (au/<? (cc/<send-rpc client "request-event" arg))))
-       (is (= :foo (au/<? event-ch)))))))
+       (try
+         (cc/bind-event client event-name event-handler)
+         (is (= {:error nil, :result true}
+                (au/<? (cc/<send-rpc client :request-event (name event-name)))))
+         (is (= {:duration-ms 1000} (au/<? event-ch)))
+         (finally
+           (cc/shutdown client)))))))

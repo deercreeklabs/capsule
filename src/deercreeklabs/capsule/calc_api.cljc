@@ -26,8 +26,7 @@
 
 (u/def-api api
   {:rpcs {:calculate {:arg-schema calculate-arg-schema
-                      :ret-schema l/double-schema
-                      :public? true}
+                      :ret-schema l/double-schema}
           :request-event {:arg-schema l/string-schema
                           :ret-schema l/boolean-schema}}
    :events {:everybody-shake everybody-shake-event-schema
