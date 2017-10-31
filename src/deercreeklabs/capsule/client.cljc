@@ -326,7 +326,7 @@
 
 ;; TODO: Measure timings and set these appropriately
 (def default-client-options
-  {:max-rpcs-per-second 100
+  {:max-rpcs-per-second 10
    :max-rpc-timeout-ms 10000
    :rpc-burst-seconds 5
    :default-rpc-timeout-ms 3000

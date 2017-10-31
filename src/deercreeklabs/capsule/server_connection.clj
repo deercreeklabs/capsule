@@ -66,13 +66,16 @@
                    #{server-conn}))))
       (u/send-msg tube-conn api :login-rsp :login-rsp msg-id (boolean roles)))))
 
+(defn init-authorized-rpcs! [*authorized-rpcs roles-to-rpcs]
+  (reset! *authorized-rpcs (:public roles-to-rpcs)))
+
 (defn <handle-logout-req
   [server-conn tube-conn api roles-to-rpcs msg-id *subject-id
    *subject-id->authenticated-conns *authorized-rpcs]
   (au/go
     (let [subject-id @*subject-id]
       (reset! *subject-id nil)
-      (reset! *authorized-rpcs (atom (:public roles-to-rpcs)))
+      (init-authorized-rpcs! *authorized-rpcs roles-to-rpcs)
       (swap! *subject-id->authenticated-conns update subject-id
              (fn [old-conns]
                (disj old-conns server-conn)))
@@ -138,7 +141,8 @@
    *subject-id->authenticated-conns :- s/Any]
   (let [*client-schema-pcf (atom nil)
         *subject-id (atom nil)
-        *authorized-rpcs (atom (:public roles-to-rpcs))
+        *authorized-rpcs (atom nil)
+        _ (init-authorized-rpcs! *authorized-rpcs roles-to-rpcs)
         server-conn (->ServerConnection
                      tube-conn api roles-to-rpcs handlers endpoint
                      <authenticator *client-schema-pcf *subject-id

@@ -30,7 +30,7 @@
            expected {:error nil
                      :result 6.0}]
        (try
-         (is (= expected (au/<? (cc/<send-rpc client "calculate" arg))))
+         (is (= expected (au/<? (cc/<send-rpc client :calculate arg))))
          (finally
            (cc/shutdown client)))))))
 
@@ -42,7 +42,7 @@
            expected {}]
        (try
          (let [rsp (au/<? (cc/<send-rpc client
-                                        "request-event" "everybody-shake"))
+                                        :request-event "everybody-shake"))
                {:keys [error result]} rsp]
            (is (nil? result))
            (is (= "Unauthorized RPC to :request-event"
@@ -65,5 +65,35 @@
          (is (= {:error nil, :result true}
                 (au/<? (cc/<send-rpc client :request-event (name event-name)))))
          (is (= {:duration-ms 1000} (au/<? event-ch)))
+         (finally
+           (cc/shutdown client)))))))
+
+(deftest test-login-logout-w-same-client
+  (au/test-async
+   1000
+   (ca/go
+     (let [client (cc/make-client calc-api/api <get-uris)
+           event-name :everybody-shake
+           event-ch (ca/chan)
+           event-handler #(ca/put! event-ch %)]
+       (try
+         (cc/bind-event client event-name event-handler)
+         (let [rsp (au/<? (cc/<send-rpc client
+                                        :request-event (name event-name)))
+               {:keys [error result]} rsp]
+           (is (nil? result))
+           (is (= "Unauthorized RPC to :request-event"
+                  (subs error 0 34))))
+         (au/<? (cc/<log-in client "test" "test"))
+         (is (= {:error nil, :result true}
+                (au/<? (cc/<send-rpc client :request-event (name event-name)))))
+         (is (= {:duration-ms 1000} (au/<? event-ch)))
+         (au/<? (cc/<log-out client))
+         (let [rsp (au/<? (cc/<send-rpc client
+                                        :request-event (name event-name)))
+               {:keys [error result]} rsp]
+           (is (nil? result))
+           (is (= "Unauthorized RPC to :request-event"
+                  (subs error 0 34))))
          (finally
            (cc/shutdown client)))))))
