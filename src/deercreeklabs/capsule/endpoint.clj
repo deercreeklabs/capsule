@@ -23,7 +23,7 @@
 
   (on-connect [this tube-conn conn-id]
     (let [server-conn (sc/make-server-connection
-                       tube-conn api roles-to-rpcs handlers this <authenticator
+                       tube-conn api roles-to-rpcs handlers <authenticator
                        *subject-id->authenticated-conns)]
       (swap! *conn-id->conn assoc conn-id server-conn)
       (tc/set-on-rcv tube-conn (fn [tube-conn data]

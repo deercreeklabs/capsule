@@ -15,7 +15,7 @@
   (send-event [this event-name event])
   (get-subject-id [this]))
 
-(defn <handle-msg [tube-conn api subject-id handlers endpoint msg-info
+(defn <handle-msg [tube-conn api subject-id handlers msg-info
                    client-schema-pcf]
   (au/go
     (let [{:keys [msg-type msg-name msg-id msg]} msg-info
@@ -25,7 +25,7 @@
       (if-let [<handler (get-in handlers [k msg-name])]
         (try
           (let [metadata (u/sym-map subject-id msg-id)
-                rsp (au/<? (<handler msg endpoint metadata))]
+                rsp (au/<? (<handler msg metadata))]
             (when (and (= :rpc-req msg-type) rsp)
               (u/send-msg tube-conn api :rpc-success-rsp msg-name msg-id rsp)))
           (catch Exception e
@@ -96,8 +96,7 @@
     (u/send-msg tube-conn api :rpc-failure-rsp :rpc-failure-rsp msg-id
                 failure-msg)))
 
-(defrecord ServerConnection [tube-conn api roles-to-rpcs handlers endpoint
-                             <authenticator
+(defrecord ServerConnection [tube-conn api roles-to-rpcs handlers <authenticator
                              *client-schema-pcf *subject-id
                              *subject-id->authenticated-conns *authorized-rpcs]
   IServerConnection
@@ -117,7 +116,7 @@
                               *authorized-rpcs)
 
           (if (@*authorized-rpcs msg-name)
-            (<handle-msg tube-conn api subject-id handlers endpoint msg-info
+            (<handle-msg tube-conn api subject-id handlers msg-info
                          client-schema-pcf)
             (send-unauthorized-msg tube-conn api msg-info))))
       (reset! *client-schema-pcf
@@ -136,7 +135,6 @@
    api :- (s/protocol u/IAPI)
    roles-to-rpcs :- u/RolesToRpcs
    handlers :- u/HandlerMap
-   endpoint :- s/Any
    <authenticator :- u/Authenticator
    *subject-id->authenticated-conns :- s/Any]
   (let [*client-schema-pcf (atom nil)
@@ -144,8 +142,8 @@
         *authorized-rpcs (atom nil)
         _ (init-authorized-rpcs! *authorized-rpcs roles-to-rpcs)
         server-conn (->ServerConnection
-                     tube-conn api roles-to-rpcs handlers endpoint
-                     <authenticator *client-schema-pcf *subject-id
+                     tube-conn api roles-to-rpcs handlers <authenticator
+                     *client-schema-pcf *subject-id
                      *subject-id->authenticated-conns *authorized-rpcs)]
     (send-schema-pcf tube-conn api)
     server-conn))
