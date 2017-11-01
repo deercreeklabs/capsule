@@ -22,7 +22,6 @@
 
 (defn handle-request-event [event-name-str endpoint metadata]
   (au/go
-    (debugs event-name-str)
     (let [event (case event-name-str
                   "everybody-shake" {:duration-ms 1000}
                   "custom-event" {:map {"Name" "Foo"}})]
