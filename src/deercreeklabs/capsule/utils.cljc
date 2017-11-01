@@ -42,15 +42,13 @@
   {(s/optional-key :path) Path
    (s/optional-key :<authenticator) Authenticator})
 (def ClientOptions
-  {(s/optional-key :subject-id) s/Str
-   (s/optional-key :credential) s/Str
-   (s/optional-key :default-rpc-timeout-ms) s/Int
+  {(s/optional-key :default-rpc-timeout-ms) s/Int
    (s/optional-key :max-rpc-timeout-ms) s/Int
    (s/optional-key :connect-timeout-ms) s/Int
    (s/optional-key :max-reconnect-wait-ms) s/Int})
 (def RpcCallback (s/=> s/Any s/Any))
 (def RpcInfo
-  {:rpc-name s/Str
+  {:rpc-name-kw s/Keyword
    :arg s/Any
    :rpc-id ba/ByteArray
    :rpc-id-str s/Str
@@ -109,9 +107,11 @@
 (defprotocol IAPI
   (encode [this msg-info])
   (decode [this writer-msg-schema ba])
-  (get-msg-schema [this]))
+  (get-msg-schema [this])
+  (get-rpc-name-kws [this])
+  (get-event-name-kws [this]))
 
-(defrecord API [msg-schema]
+(defrecord API [msg-schema rpc-name-kws event-name-kws]
   IAPI
   (encode [this msg-info]
     (encode-msg* msg-schema msg-info))
@@ -120,7 +120,13 @@
     (decode-msg* msg-schema writer-msg-schema ba))
 
   (get-msg-schema [this]
-    msg-schema))
+    msg-schema)
+
+  (get-rpc-name-kws [this]
+    rpc-name-kws)
+
+  (get-event-name-kws [this]
+    event-name-kws))
 
 (l/def-fixed-schema msg-id-schema 16)
 
@@ -171,43 +177,6 @@
                              event-syms)]
     `(l/def-union-schema ~msg-schema-sym
        ~@msg-rec-syms)))
-
-(defmacro def-api [var-name api-info]
-  (let [{:keys [rpcs events]} api-info
-        login-req-sym (make-record-name-sym :login-req :login-req)
-        login-rsp-sym (make-record-name-sym :login-rsp :login-rsp)
-        logout-req-sym (make-record-name-sym :logout-req :logout-req)
-        logout-rsp-sym (make-record-name-sym :logout-rsp :logout-rsp)
-        rpc-failure-sym (make-record-name-sym :rpc-failure-rsp :rpc-failure-rsp)
-        builtin-syms [login-req-sym login-rsp-sym logout-req-sym logout-rsp-sym
-                      rpc-failure-sym]
-        rpc-req-schemas (map make-rpc-req-schema rpcs)
-        rpc-success-rsp-schemas (map make-rpc-success-rsp-schema rpcs)
-        event-schemas (map make-event-schema events)
-        msg-schema-sym (gensym "msg-schema")
-        msg-schema (make-msg-schema msg-schema-sym api-info builtin-syms)]
-    `(do
-       (l/def-record-schema ~login-req-sym
-         [:msg-id msg-id-schema]
-         [:content login-info-schema])
-       (l/def-record-schema ~login-rsp-sym
-         [:msg-id msg-id-schema]
-         [:content l/boolean-schema])
-       (l/def-record-schema ~logout-req-sym
-         [:msg-id msg-id-schema]
-         [:content l/null-schema])
-       (l/def-record-schema ~logout-rsp-sym
-         [:msg-id msg-id-schema]
-         [:content l/boolean-schema])
-       (l/def-record-schema ~rpc-failure-sym
-         [:msg-id msg-id-schema]
-         [:content rpc-failure-info-schema])
-       ~@rpc-req-schemas
-       ~@rpc-success-rsp-schemas
-       ~@event-schemas
-       ~msg-schema
-       (def ~var-name
-         (->API ~msg-schema-sym)))))
 
 (defn configure-logging []
   (timbre/merge-config!

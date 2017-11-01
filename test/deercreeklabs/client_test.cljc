@@ -19,7 +19,7 @@
 (defn <get-uris []
   (au/go
     ["wss://chadlaptop.f1shoppingcart.com:8080/calc"]))
-
+#_
 (deftest test-calculate
   (au/test-async
    1000
@@ -33,13 +33,12 @@
          (is (= expected (au/<? (cc/<send-rpc client :calculate arg))))
          (finally
            (cc/shutdown client)))))))
-
+#_
 (deftest test-request-event-not-authenticated
   (au/test-async
    1000
    (ca/go
-     (let [client (cc/make-client calc-api/api <get-uris)
-           expected {}]
+     (let [client (cc/make-client calc-api/api <get-uris)]
        (try
          (let [rsp (au/<? (cc/<send-rpc client
                                         :request-event "everybody-shake"))
@@ -52,25 +51,29 @@
 
 (deftest test-request-event-authenticated
   (au/test-async
-   1000
+   3000
    (ca/go
-     (let [opts {:subject-id "test"
-                 :credential "test"}
-           client (cc/make-client calc-api/api <get-uris opts)
+     (let [client (cc/make-client calc-api/api <get-uris )
            event-name :everybody-shake
            event-ch (ca/chan)
            event-handler #(ca/put! event-ch %)]
        (try
          (cc/bind-event client event-name event-handler)
-         (is (= {:error nil, :result true}
-                (au/<? (cc/<send-rpc client :request-event (name event-name)))))
-         (is (= {:duration-ms 1000} (au/<? event-ch)))
+         (let [[v ch] (au/alts? [(cc/<log-in client "test" "test")
+                                 (ca/timeout 1000)])
+               _ (is (= {:error nil, :result true} v))
+               [v ch] (au/alts? [(cc/<send-rpc client :request-event
+                                               (name event-name))
+                                 (ca/timeout 1000)])
+               _ (is (= {:error nil, :result true} v))
+               [v ch] (au/alts? [event-ch (ca/timeout 1000)])]
+           (is (= {:duration-ms 1000} v)))
          (finally
            (cc/shutdown client)))))))
-
+#_
 (deftest test-login-logout-w-same-client
   (au/test-async
-   1000
+   20000
    (ca/go
      (let [client (cc/make-client calc-api/api <get-uris)
            event-name :everybody-shake
@@ -97,3 +100,31 @@
                   (subs error 0 34))))
          (finally
            (cc/shutdown client)))))))
+#_
+(deftest test-non-existent-rpc
+  (au/test-async
+   1000
+   (ca/go
+     (let [client (cc/make-client calc-api/api <get-uris)]
+       (try
+         (let [rsp (au/<? (cc/<send-rpc client
+                                        :non-existent "arg"))
+               {:keys [error result]} rsp]
+           (is (nil? result))
+           (is (= "RPC `non-existent` is not in the API."
+                  (subs error 0 37))))
+         (finally
+           (cc/shutdown client)))))))
+#_
+(deftest test-bind-non-existent-event
+  (let [client (cc/make-client calc-api/api <get-uris)]
+    (try
+      (cc/bind-event client :non-existent (constantly :foo))
+      (is (= :did-not-throw :this-test))
+      (catch #?(:clj Exception :cljs js/Error) e
+          (let [{:keys [subtype error-str event-name]} (ex-data e)]
+            (is (= :unknown-event-name subtype))
+            (is (= "Event `non-existent` is not in the API." error-str))
+            (is (= "non-existent" event-name))))
+      (finally
+        (cc/shutdown client)))))
