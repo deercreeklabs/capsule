@@ -153,7 +153,6 @@
     (swap! *event-name-kw->handler assoc event-name-kw event-handler))
 
   (shutdown [this]
-    (debugf "@@@@@@@@@@@@@@@@@@@@@@@@@ Shutting down @@@@@@@@@@@@@@@@@@")
     (reset! *shutdown? true)))
 
 (defn send-schema-pcf [tube-client api]
@@ -168,14 +167,12 @@
    *server-schema-pcf *shutdown?]
   (ca/go
     (while (not @*shutdown?)
-      (debugf "start-connection-loop")
       (try
         (let [uris (au/<? (<get-uris))
               uri (rand-nth uris)
               reconnect-ch (ca/chan)
               rcv-chan (ca/chan)
               tc-opts {:on-disconnect (fn on-disconnect [code reason]
-                                        (debugf "Disconnected from %s." uri)
                                         (reset! *tube-client nil)
                                         (reset! *server-schema-pcf nil)
                                         (ca/put! reconnect-ch true))
@@ -227,7 +224,6 @@
         (ca/<! (ca/timeout credit-ch-delay-ms))))
     (ca/go
       (while (not @*shutdown?)
-        (debugf "start-rpc-send-loop")
         (try
           (let [[rpc ch] (ca/alts! [rpc-chan (ca/timeout 100)])]
             (when (= rpc-chan ch)
@@ -251,7 +247,6 @@
   [rpc-chan max-rpc-timeout-ms *rpc-id-str->rpc *shutdown?]
   (ca/go
     (while (not @*shutdown?)
-      (debugf "start-rpc-retry-loop")
       (try
         (doseq [[rpc-id-str rpc] @*rpc-id-str->rpc]
           (let [{:keys [retry-time-ms failure-time-ms rpc-id-str cb]} rpc
@@ -323,7 +318,6 @@
    *rpc-id-str->rpc *event-name-kw->handler]
   (ca/go
     (while (not @*shutdown?)
-      (debugf "start-rcv-loop")
       (try
         (if-let [rcv-chan @*rcv-chan]
           (let [[data ch] (ca/alts! [rcv-chan (ca/timeout 100)])]

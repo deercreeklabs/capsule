@@ -26,7 +26,6 @@
     (let [event (case event-name-str
                   "everybody-shake" {:duration-ms 1000}
                   "custom-event" {:map {"Name" "Foo"}})]
-      (debugs event-name-str event)
       (endpoint/send-event-to-all-conns endpoint event-name-str event)
       true)))
 
