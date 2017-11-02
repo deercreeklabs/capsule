@@ -1,7 +1,6 @@
 (ns deercreeklabs.capsule.client
   (:require
    [clojure.core.async :as ca]
-   [clojure.math.numeric-tower :as math]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
    [deercreeklabs.capsule.utils :as u]
@@ -9,7 +8,10 @@
    [deercreeklabs.log-utils :as lu :refer [debugs]]
    [deercreeklabs.tube.client :as tc]
    [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [taoensso.timbre :as timbre :refer [debugf errorf infof]])
+  #?(:cljs
+     (:require-macros
+      [cljs.core.async.macros :as ca])))
 
 (def connect-timeout-ms 2000)
 (def max-reconnect-wait-ms 2000)
@@ -260,7 +262,7 @@
               (> now retry-time-ms)
               (do
                 (swap! *rpc-id-str->rpc dissoc rpc-id-str)
-                (retry-rpc now rpc-chan max-rpc-timeout-ms)))))
+                (retry-rpc rpc now rpc-chan max-rpc-timeout-ms)))))
         (ca/<! (ca/timeout 100))
         (catch #?(:clj Exception :cljs js/Error) e
             (lu/log-exception e))))))
@@ -287,15 +289,6 @@
         m @*event-name-kw->handler]
     (when handler
       (handler msg))))
-
-(defn handle-login-rsp [msg-info *login-cb]
-  (let [{:keys [was-successful]} (:msg msg-info)]
-    (if was-successful
-      (infof "Login succeeded.")
-      (infof "Login failed."))
-    (when-let [cb @*login-cb]
-      (call-callback-w-result cb was-successful))
-    (reset! *login-cb nil)))
 
 (defn handle-login-rsp [msg-info *login-cb]
   (let [was-successful (:msg msg-info)]
@@ -345,6 +338,10 @@
    :connect-timeout-ms 5000
    :max-reconnect-wait-ms 2000})
 
+(defn ceil [n]
+  #?(:clj (int (Math/ceil n))
+     :cljs (.ceil js/Math n)))
+
 (s/defn make-client :- (s/protocol ICapsuleClient)
   ([api :- (s/protocol u/IAPI)
     <get-uris :- u/GetURIsFn]
@@ -356,8 +353,8 @@
          {:keys [max-rpcs-per-second max-rpc-timeout-ms
                  rpc-burst-seconds default-rpc-timeout-ms max-total-rpc-time-ms
                  connect-timeout-ms max-reconnect-wait-ms]} opts
-         rpc-chan (ca/chan (math/ceil (* max-rpcs-per-second rpc-burst-seconds
-                                         (/ max-rpc-timeout-ms 1000))))
+         rpc-chan (ca/chan (ceil (* max-rpcs-per-second rpc-burst-seconds
+                                    (/ max-rpc-timeout-ms 1000))))
          *rcv-chan (atom nil)
          *tube-client (atom nil)
          *server-schema-pcf (atom nil)

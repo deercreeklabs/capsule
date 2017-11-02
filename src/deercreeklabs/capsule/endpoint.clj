@@ -30,8 +30,6 @@
                                  (sc/on-rcv server-conn tube-conn data)))
       (tc/set-on-close tube-conn
                        (fn [tube-conn code reason]
-                         (debugf "Connection to %s closing. Code: %s Reason: %s"
-                                 conn-id code reason)
                          (swap! *conn-id->conn dissoc conn-id)
                          (when-let [subject-id (sc/get-subject-id server-conn)]
                            (swap! *subject-id->authenticated-conns

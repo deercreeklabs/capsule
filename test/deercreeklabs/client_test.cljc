@@ -9,7 +9,10 @@
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
    [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [taoensso.timbre :as timbre :refer [debugf errorf infof]])
+  #?(:cljs
+     (:require-macros
+      [cljs.core.async.macros :as ca])))
 
 ;; Use this instead of fixtures, which are hard to make work w/ async testing.
 (s/set-fn-validation! true)
@@ -19,6 +22,8 @@
 (defn <get-uris []
   (au/go
     ["wss://chadlaptop.f1shoppingcart.com:8080/calc"]))
+
+(def rpc-timeout #?(:cljs 5000 :clj 1000))
 
 (deftest test-calculate
   (au/test-async
@@ -31,7 +36,7 @@
                expected {:error nil
                          :result 6.0}
                [v ch] (au/alts? [(cc/<send-rpc client :calculate arg)
-                                 (ca/timeout 1000)])]
+                                 (ca/timeout rpc-timeout)])]
            (is (= expected v)))
          (finally
            (cc/shutdown client)))))))
@@ -43,9 +48,9 @@
      (let [client (cc/make-client calc-api/api <get-uris)]
        (try
          (let [[rsp ch] (au/alts? [(cc/<send-rpc client
-                                                  :request-event
-                                                  "everybody-shake")
-                                   (ca/timeout 1000)])
+                                                 :request-event
+                                                 "everybody-shake")
+                                   (ca/timeout rpc-timeout)])
                {:keys [error result]} rsp]
            (is (nil? result))
            (is (= "Unauthorized RPC to :request-event"
@@ -55,7 +60,7 @@
 
 (deftest test-request-event-authenticated
   (au/test-async
-   3000
+   #?(:cljs 15000 :clj 3000)
    (ca/go
      (let [client (cc/make-client calc-api/api <get-uris )
            event-name :everybody-shake
@@ -63,21 +68,23 @@
            event-handler #(ca/put! event-ch %)]
        (try
          (cc/bind-event client event-name event-handler)
-         (let [[v ch] (au/alts? [(cc/<log-in client "test" "test")
-                                 (ca/timeout 1000)])
+         (let [login-ch (cc/<log-in client "test" "test")
+               [v ch] (au/alts? [login-ch (ca/timeout rpc-timeout)])
+               _ (is (= login-ch ch))
                _ (is (= {:error nil, :result true} v))
                [v ch] (au/alts? [(cc/<send-rpc client :request-event
                                                (name event-name))
-                                 (ca/timeout 1000)])
+                                 (ca/timeout rpc-timeout)])
                _ (is (= {:error nil, :result true} v))
-               [v ch] (au/alts? [event-ch (ca/timeout 1000)])]
+               [v ch] (au/alts? [event-ch (ca/timeout rpc-timeout)])]
+           (is (= event-ch ch))
            (is (= {:duration-ms 1000} v)))
          (finally
            (cc/shutdown client)))))))
 
 (deftest test-login-logout-w-same-client
   (au/test-async
-   3000
+   #?(:cljs 15000 :clj 3000)
    (ca/go
      (let [client (cc/make-client calc-api/api <get-uris)]
        (try
@@ -86,25 +93,25 @@
                event-handler #(ca/put! event-ch %)
                _ (cc/bind-event client event-name event-handler)
                [rsp ch] (au/alts? [(cc/<send-rpc client
-                                                  :request-event
-                                                  (name event-name))
-                                   (ca/timeout 1000)])
+                                                 :request-event
+                                                 (name event-name))
+                                   (ca/timeout rpc-timeout)])
                _ (is (= "Unauthorized RPC to :request-event"
                         (subs (:error rsp) 0 34)))
                [v ch] (au/alts? [(cc/<log-in client "test" "test")
-                                 (ca/timeout 1000)])
+                                 (ca/timeout rpc-timeout)])
                [rsp ch] (au/alts? [(cc/<send-rpc client
-                                                  :request-event
-                                                  (name event-name))
-                                   (ca/timeout 1000)])
+                                                 :request-event
+                                                 (name event-name))
+                                   (ca/timeout rpc-timeout)])
                _ (is (= {:error nil, :result true} rsp))
-               [v ch] (au/alts? [event-ch (ca/timeout 1000)])
+               [v ch] (au/alts? [event-ch (ca/timeout rpc-timeout)])
                _ (is (= {:duration-ms 1000} v))
-               [v ch] (au/alts? [(cc/<log-out client) (ca/timeout 1000)])
+               [v ch] (au/alts? [(cc/<log-out client) (ca/timeout rpc-timeout)])
                [rsp ch] (au/alts? [(cc/<send-rpc client
-                                                  :request-event
-                                                  (name event-name))
-                                   (ca/timeout 1000)])
+                                                 :request-event
+                                                 (name event-name))
+                                   (ca/timeout rpc-timeout)])
                _ (is (= "Unauthorized RPC to :request-event"
                         (subs (:error rsp) 0 34)))])
          (finally
@@ -118,7 +125,7 @@
        (try
          (let [[rsp ch] (au/alts? [(cc/<send-rpc client
                                                  :non-existent "arg")
-                                   (ca/timeout 1000)])]
+                                   (ca/timeout rpc-timeout)])]
            (is (= "RPC `:non-existent` is not in the API."
                   (subs (:error rsp) 0 38))))
          (finally

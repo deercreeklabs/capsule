@@ -48,9 +48,7 @@
          keystore-password (System/getenv "TUBE_JKS_KEYSTORE_PASSWORD")
          routes (make-routes endpoints)
          on-connect (make-on-server-connect routes)
-         on-disconnect (fn [conn-id code reason]
-                         (debugf "Conn to %s disconnected (Code: %s Reason: %s)"
-                                 conn-id code reason))
+         on-disconnect (fn [conn-id code reason])
          compression-type :smart
          tube-server (ts/make-tube-server port keystore-path keystore-password
                                           on-connect on-disconnect
