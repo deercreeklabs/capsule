@@ -5,9 +5,9 @@
    :install-deps true
    :parallel-build true
    :static-fns true
-   ;;:pseudo-names true
-   ;;:pretty-print true
-   ;;:infer-externs true
+   ;; :pseudo-names true
+   ;; :pretty-print true
+   ;; :infer-externs true
    })
 
 (defn make-build-conf [id target-kw build-type-kw opt-level main]
@@ -63,7 +63,7 @@
     [[lein-ancient "0.6.14"]
      [lein-cljsbuild "1.1.7"
       :exclusions [org.apache.commons/commons-compress org.clojure/clojure]]
-     [lein-cloverage "1.0.9" :exclusions [org.clojure/clojure]]
+     [lein-cloverage "1.0.10" :exclusions [org.clojure/clojure]]
      [lein-doo "0.1.8"]
      [lein-npm "0.6.2" :exclusions [com.fasterxml.jackson.core/jackson-core]]
      ;; Because of confusion with a defunct project also called
@@ -88,12 +88,12 @@
    [com.taoensso/timbre "4.10.0"]
    [deercreeklabs/async-utils "0.1.4"]
    [deercreeklabs/baracus "0.1.0"]
-   [deercreeklabs/lancaster "0.1.4"
+   [deercreeklabs/lancaster "0.1.5"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.1"]
    [deercreeklabs/stockroom "0.1.11"]
-   [deercreeklabs/tube "0.1.6" :exclusions [org.slf4j/slf4j-api]]
+   [deercreeklabs/tube "0.1.7" :exclusions [org.slf4j/slf4j-api]]
    [org.clojure/clojure "1.9.0-beta4"]
    [org.clojure/clojurescript "1.9.946"]
    [org.clojure/core.async "0.3.443"]
