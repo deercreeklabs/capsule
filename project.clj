@@ -42,7 +42,7 @@
              :compiler compiler}
       node-test? (assoc :notify-command ["node" output-to]))))
 
-(defproject deercreeklabs/capsule "0.1.1-SNAPSHOT"
+(defproject deercreeklabs/capsule "0.1.1"
   :description "A semantic layer for tube"
   :url "http://www.deercreeklabs.com"
   :license {:name "Apache License, Version 2.0"
