@@ -2,6 +2,7 @@
   (:require
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.capsule.server-connection :as sc]
+   [deercreeklabs.capsule.api :as api]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
    [deercreeklabs.tube.connection :as tc]
@@ -56,17 +57,17 @@
                        false))})
 
 (s/defn make-endpoint :- (s/protocol IEndpoint)
-  ([api :- (s/protocol u/IAPI)
+  ([api :- (s/protocol api/IAPI)
     roles-to-rpcs :- u/RolesToRpcs
     handlers :- u/HandlerMap]
    (make-endpoint api handlers default-endpoint-options))
-  ([api :- (s/protocol u/IAPI)
+  ([api :- (s/protocol api/IAPI)
     roles-to-rpcs :- u/RolesToRpcs
     handlers :- u/HandlerMap
     opts :- u/EndpointOptions]
    (let [opts (merge default-endpoint-options opts)
          {:keys [path <authenticator]} opts
-         msg-schema (u/get-msg-schema api)
+         msg-schema (api/get-msg-schema api)
          *conn-id->conn (atom {})
          *subject-id->authenticated-conns (atom {})]
      (->Endpoint path <authenticator api roles-to-rpcs handlers msg-schema

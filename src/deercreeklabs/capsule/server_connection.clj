@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
+   [deercreeklabs.capsule.api :as api]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
@@ -42,7 +43,7 @@
 
 (defn send-schema-pcf [tube-conn api]
   (->> api
-       (u/get-msg-schema)
+       (api/get-msg-schema)
        (l/get-parsing-canonical-form)
        (l/serialize l/string-schema)
        (tc/send tube-conn)))
@@ -103,7 +104,7 @@
   (on-rcv [this tube-conn data]
     (if-let [client-schema-pcf @*client-schema-pcf]
       (let [subject-id @*subject-id
-            msg-info (u/decode api client-schema-pcf data)
+            msg-info (api/decode api client-schema-pcf data)
             {:keys [msg-type msg-name msg-id msg]} msg-info]
         (case msg-type
           :login-req
@@ -132,7 +133,7 @@
 
 (s/defn make-server-connection :- (s/protocol IServerConnection)
   [tube-conn :- u/TubeConn
-   api :- (s/protocol u/IAPI)
+   api :- (s/protocol api/IAPI)
    roles-to-rpcs :- u/RolesToRpcs
    handlers :- u/HandlerMap
    <authenticator :- u/Authenticator

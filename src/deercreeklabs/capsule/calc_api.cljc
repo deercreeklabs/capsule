@@ -1,6 +1,6 @@
 (ns deercreeklabs.capsule.calc-api
   (:require
-   [deercreeklabs.capsule :as capsule]
+   [deercreeklabs.capsule.api :as capsule-api]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]))
 
@@ -25,7 +25,7 @@
 (l/def-record-schema request-event-arg-schema
   [:event-name :string])
 
-(capsule/def-api api
+(capsule-api/def-api api
   {:rpcs {:calculate {:arg-schema calculate-arg-schema
                       :ret-schema l/double-schema}
           :request-event {:arg-schema l/string-schema

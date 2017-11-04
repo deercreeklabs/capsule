@@ -3,6 +3,7 @@
    [clojure.core.async :as ca]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
+   [deercreeklabs.capsule.api :as api]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
@@ -39,23 +40,23 @@
 
 (defn send-rpc* [tube-client api rpc *rpc-id-str->rpc]
   (let [{:keys [rpc-name-kw rpc-id rpc-id-str arg cb]} rpc]
-    (if-not ((u/get-rpc-name-kws api) rpc-name-kw)
+    (if-not ((api/get-rpc-name-kws api) rpc-name-kw)
       (call-callback-w-error cb (str "RPC `" rpc-name-kw
                                      "` is not in the API."))
       (do
-        (tc/send tube-client (u/encode api {:msg-type :rpc-req
-                                            :msg-name rpc-name-kw
-                                            :msg-id rpc-id
-                                            :msg arg}))
+        (tc/send tube-client (api/encode api {:msg-type :rpc-req
+                                              :msg-name rpc-name-kw
+                                              :msg-id rpc-id
+                                              :msg arg}))
         (swap! *rpc-id-str->rpc assoc rpc-id-str rpc)))))
 
 (defn log-in* [tube-client api subject-id credential]
   (let [msg-id (u/make-msg-id)
         msg (u/sym-map subject-id credential)]
-    (tc/send tube-client (u/encode api {:msg-type :login-req
-                                        :msg-name :login-req
-                                        :msg-id msg-id
-                                        :msg msg}))))
+    (tc/send tube-client (api/encode api {:msg-type :login-req
+                                          :msg-name :login-req
+                                          :msg-id msg-id
+                                          :msg msg}))))
 
 (defprotocol ICapsuleClient
   (send-rpc
@@ -133,10 +134,10 @@
     (when-let [tube-client @*tube-client]
       (let [msg-id (u/make-msg-id)
             msg (u/sym-map msg-id)]
-        (tc/send tube-client (u/encode api {:msg-type :logout-req
-                                            :msg-name :logout-req
-                                            :msg-id msg-id
-                                            :msg nil})))))
+        (tc/send tube-client (api/encode api {:msg-type :logout-req
+                                              :msg-name :logout-req
+                                              :msg-id msg-id
+                                              :msg nil})))))
 
   (<log-out [this]
     (let [ch (ca/chan)
@@ -145,7 +146,7 @@
       ch))
 
   (bind-event [this event-name-kw event-handler]
-    (when-not ((u/get-event-name-kws api) event-name-kw)
+    (when-not ((api/get-event-name-kws api) event-name-kw)
       (let [error-str (str "Event `" event-name-kw "` is not in the API.")]
         (throw (ex-info error-str
                         {:type :illegal-argument
@@ -159,7 +160,7 @@
 
 (defn send-schema-pcf [tube-client api]
   (->> api
-       (u/get-msg-schema)
+       (api/get-msg-schema)
        (l/get-parsing-canonical-form)
        (l/serialize l/string-schema)
        (tc/send tube-client)))
@@ -315,7 +316,7 @@
         (if-let [rcv-chan @*rcv-chan]
           (let [[data ch] (ca/alts! [rcv-chan (ca/timeout 100)])]
             (when (= rcv-chan ch)
-              (let [msg-info (u/decode api @*server-schema-pcf data)]
+              (let [msg-info (api/decode api @*server-schema-pcf data)]
                 (case (:msg-type msg-info)
                   :login-rsp (handle-login-rsp msg-info *login-cb)
                   :logout-rsp (handle-logout-rsp msg-info *logout-cb)
@@ -343,10 +344,10 @@
      :cljs (.ceil js/Math n)))
 
 (s/defn make-client :- (s/protocol ICapsuleClient)
-  ([api :- (s/protocol u/IAPI)
+  ([api :- (s/protocol api/IAPI)
     <get-uris :- u/GetURIsFn]
    (make-client api <get-uris {}))
-  ([api :- (s/protocol u/IAPI)
+  ([api :- (s/protocol api/IAPI)
     <get-uris :- u/GetURIsFn
     opts :- u/ClientOptions]
    (let [opts (merge default-client-options opts)
