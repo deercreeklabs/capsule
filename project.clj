@@ -50,6 +50,7 @@
   :lein-release {:scm :git
                  :deploy-via :clojars}
 
+  :aot :all
   ;; For testing
   :main deercreeklabs.capsule.calc
   :pedantic? :abort
