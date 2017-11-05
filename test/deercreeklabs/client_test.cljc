@@ -21,7 +21,7 @@
 
 (defn <get-uris []
   (au/go
-    ["wss://chadlaptop.f1shoppingcart.com:8080/calc"]))
+    ["ws://localhost:8080/calc"]))
 
 (def rpc-timeout #?(:cljs 5000 :clj 1000))
 

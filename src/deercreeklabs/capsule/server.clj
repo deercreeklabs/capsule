@@ -44,13 +44,10 @@
    (make-server endpoints default-port))
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]
     port :- s/Int]
-   (let [keystore-path (System/getenv "TUBE_JKS_KEYSTORE_PATH")
-         keystore-password (System/getenv "TUBE_JKS_KEYSTORE_PASSWORD")
-         routes (make-routes endpoints)
+   (let [routes (make-routes endpoints)
          on-connect (make-on-server-connect routes)
          on-disconnect (fn [conn-id code reason])
          compression-type :smart
-         tube-server (ts/make-tube-server port keystore-path keystore-password
-                                          on-connect on-disconnect
+         tube-server (ts/make-tube-server port on-connect on-disconnect
                                           compression-type)]
      (->CapsuleServer tube-server))))
