@@ -3,7 +3,6 @@
    [clojure.core.async :as ca]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
-   [deercreeklabs.capsule.api :as api]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
@@ -16,6 +15,7 @@
 
 (def connect-timeout-ms 2000)
 (def max-reconnect-wait-ms 2000)
+(def ^:dynamic **silence-log** false)
 
 (defn call-callback-w-result [callback result]
   (when callback
@@ -38,25 +38,26 @@
                                      "within " max-rpc-timeout-ms " ms."))
       nil)))
 
-(defn send-rpc* [tube-client api rpc *rpc-id-str->rpc]
-  (let [{:keys [rpc-name-kw rpc-id rpc-id-str arg cb]} rpc]
-    (if-not ((api/get-rpc-name-kws api) rpc-name-kw)
-      (call-callback-w-error cb (str "RPC `" rpc-name-kw
-                                     "` is not in the API."))
-      (do
-        (tc/send tube-client (api/encode api {:msg-type :rpc-req
-                                              :msg-name rpc-name-kw
-                                              :msg-id rpc-id
-                                              :msg arg}))
-        (swap! *rpc-id-str->rpc assoc rpc-id-str rpc)))))
+(defn send-msg* [tube-client msg-union-schema msg-rec-name msg]
+  (tc/send tube-client (l/serialize msg-union-schema [msg-rec-name msg])))
 
-(defn log-in* [tube-client api subject-id credential]
-  (let [msg-id (u/make-msg-id)
-        msg (u/sym-map subject-id credential)]
-    (tc/send tube-client (api/encode api {:msg-type :login-req
-                                          :msg-name :login-req
-                                          :msg-id msg-id
-                                          :msg msg}))))
+(defn send-rpc* [tube-client msg-union-schema rpc *rpc-id->rpc]
+  (let [{:keys [rpc-req-msg-record-name rpc-id arg cb]} rpc
+        req (u/sym-map rpc-id arg)]
+    (do
+      (send-msg* tube-client msg-union-schema rpc-req-msg-record-name req)
+      (swap! *rpc-id->rpc assoc rpc-id rpc))))
+
+(defn log-in* [tube-client msg-union-schema subject-id credential]
+  (let [msg (u/sym-map subject-id credential)]
+    (send-msg* tube-client msg-union-schema ::u/login-req msg)))
+
+(defn get-rpc-id* [*rpc-id]
+  (swap! *rpc-id (fn [rpc-id]
+                   (let [new-rpc-id (inc rpc-id)]
+                     (if (> new-rpc-id 2147483647)
+                       0
+                       new-rpc-id)))))
 
 (defprotocol ICapsuleClient
   (send-rpc
@@ -77,10 +78,12 @@
   (bind-event [this event-name-kw event-handler])
   (shutdown [this]))
 
-(defrecord CapsuleClient [api rpc-chan max-rpc-timeout-ms default-rpc-timeout-ms
-                          max-total-rpc-time-ms *tube-client *login-cb
+(defrecord CapsuleClient [msg-union-schema rpc-name-kws event-name-kws rpc-chan
+                          max-rpc-timeout-ms
+                          default-rpc-timeout-ms
+                          max-total-rpc-time-ms *rpc-id *tube-client *login-cb
                           *subject-id *credential *logout-cb
-                          *event-name-kw->handler *shutdown? *rpc-id-str->rpc]
+                          *msg-record-name->handler *shutdown? *rpc-id->rpc]
   ICapsuleClient
   (send-rpc [this rpc-name-kw arg]
     (send-rpc this rpc-name-kw arg nil default-rpc-timeout-ms))
@@ -91,15 +94,23 @@
   (send-rpc [this rpc-name-kw arg cb timeout-ms]
     (if @*shutdown?
       (throw (ex-info "Client is shut down" {}))
-      (let [timeout-ms (max timeout-ms max-rpc-timeout-ms)
-            rpc-id (u/make-msg-id)
-            rpc-id-str (ba/byte-array->b64 rpc-id)
-            now (u/get-current-time-ms)
-            retry-time-ms (+ now timeout-ms)
-            failure-time-ms (+ now max-total-rpc-time-ms)
-            rpc (u/sym-map rpc-name-kw arg rpc-id rpc-id-str cb timeout-ms
-                           retry-time-ms failure-time-ms)]
-        (enqueue-rpc rpc-chan rpc cb max-rpc-timeout-ms))))
+      (if-not (rpc-name-kws rpc-name-kw)
+        (call-callback-w-error cb (str "RPC `" rpc-name-kw
+                                       "` is not in the API."))
+        (let [timeout-ms (max timeout-ms max-rpc-timeout-ms)
+              rpc-id (get-rpc-id* *rpc-id)
+              rpc-req-msg-record-name (u/make-msg-record-name :rpc-req
+                                                              rpc-name-kw)
+              rpc-rsp-msg-record-name (u/make-msg-record-name :rpc-rsp
+                                                              rpc-name-kw)
+              now (u/get-current-time-ms)
+              retry-time-ms (+ now timeout-ms)
+              failure-time-ms (+ now max-total-rpc-time-ms)
+              rpc (u/sym-map rpc-req-msg-record-name
+                             rpc-rsp-msg-record-name
+                             arg rpc-id cb timeout-ms
+                             retry-time-ms failure-time-ms)]
+          (enqueue-rpc rpc-chan rpc cb max-rpc-timeout-ms)))))
 
   (<send-rpc [this rpc-name-kw arg]
     (<send-rpc this rpc-name-kw arg default-rpc-timeout-ms))
@@ -124,7 +135,7 @@
     (reset! *credential credential)
     (reset! *login-cb cb)
     (when-let [tube-client @*tube-client]
-      (log-in* tube-client api subject-id credential)))
+      (log-in* tube-client msg-union-schema subject-id credential)))
 
   (log-out [this]
     (log-out this nil))
@@ -132,12 +143,7 @@
   (log-out [this cb]
     (reset! *logout-cb cb)
     (when-let [tube-client @*tube-client]
-      (let [msg-id (u/make-msg-id)
-            msg (u/sym-map msg-id)]
-        (tc/send tube-client (api/encode api {:msg-type :logout-req
-                                              :msg-name :logout-req
-                                              :msg-id msg-id
-                                              :msg nil})))))
+      (send-msg* tube-client msg-union-schema ::u/logout-req nil)))
 
   (<log-out [this]
     (let [ch (ca/chan)
@@ -146,28 +152,51 @@
       ch))
 
   (bind-event [this event-name-kw event-handler]
-    (when-not ((api/get-event-name-kws api) event-name-kw)
+    (if-not (event-name-kws event-name-kw)
       (let [error-str (str "Event `" event-name-kw "` is not in the API.")]
         (throw (ex-info error-str
                         {:type :illegal-argument
                          :subtype :unknown-event-name-kw
                          :error-str error-str
-                         :event-name-kw event-name-kw}))))
-    (swap! *event-name-kw->handler assoc event-name-kw event-handler))
+                         :event-name-kw event-name-kw})))
+      (let [rec-name (u/make-msg-record-name :event event-name-kw)]
+        (swap! *msg-record-name->handler assoc rec-name
+               #(event-handler (:event %))))))
 
   (shutdown [this]
     (reset! *shutdown? true)))
 
-(defn send-schema-pcf [tube-client api]
-  (->> api
-       (api/get-msg-schema)
-       (l/get-parsing-canonical-form)
-       (l/serialize l/string-schema)
-       (tc/send tube-client)))
+(defn <do-schema-negotiation
+  [rcv-chan tube-client client-fp client-pcf *server-fp *server-pcf]
+  (au/go
+    (loop [retry? false]
+      (let [known-server-fp @*server-fp
+            req (cond-> {:client-fp client-fp
+                         :server-fp (or known-server-fp client-fp)}
+                  retry? (assoc :client-pcf client-pcf))
+            _ (tc/send tube-client (l/serialize u/handshake-req-schema req))
+            rsp (l/deserialize u/handshake-rsp-schema
+                               (l/get-parsing-canonical-form
+                                u/handshake-rsp-schema)
+                               (au/<? rcv-chan))
+            {:keys [match server-fp server-pcf]} rsp]
+        (case match
+          :both (do
+                  (reset! *server-fp known-server-fp)
+                  (when-not known-server-fp
+                    (reset! *server-pcf client-pcf)))
+          :client (do
+                    (reset! *server-fp server-fp)
+                    (reset! *server-pcf server-pcf))
+          :none (do
+                  (when-not (nil? server-fp)
+                    (reset! *server-fp server-fp)
+                    (reset! *server-pcf server-pcf))
+                  (recur true)))))))
 
 (defn start-connection-loop
-  [<get-uris api *subject-id *credential *rcv-chan *tube-client
-   *server-schema-pcf *shutdown?]
+  [<get-uris msg-union-schema client-fp client-pcf *server-fp *server-pcf
+   *subject-id *credential *rcv-chan *tube-client *shutdown?]
   (ca/go
     (while (not @*shutdown?)
       (try
@@ -177,38 +206,33 @@
               rcv-chan (ca/chan)
               tc-opts {:on-disconnect (fn on-disconnect [code reason]
                                         (reset! *tube-client nil)
-                                        (reset! *server-schema-pcf nil)
                                         (ca/put! reconnect-ch true))
                        :on-rcv (fn on-rcv [conn data]
                                  (ca/put! rcv-chan data))}
               tube-client (au/<? (tc/<make-tube-client uri connect-timeout-ms
                                                        tc-opts))]
           (when tube-client
-            (send-schema-pcf tube-client api)
-            (reset! *server-schema-pcf
-                    (l/deserialize l/string-schema
-                                   (l/get-parsing-canonical-form
-                                    l/string-schema)
-                                   (ca/<! rcv-chan)))
+            (au/<? (<do-schema-negotiation rcv-chan tube-client client-fp
+                                           client-pcf *server-fp *server-pcf))
             (when-let [subject-id @*subject-id]
               (when-let [credential @*credential]
-                (log-in* tube-client api subject-id credential)))
+                (log-in* tube-client msg-union-schema subject-id credential)))
             (reset! *rcv-chan rcv-chan)
             (reset! *tube-client tube-client)
             (ca/<! reconnect-ch))
           (ca/<! (ca/timeout (rand-int max-reconnect-wait-ms))))
         (catch #?(:clj Exception :cljs js/Error) e
-            (lu/log-exception e)
+          (lu/log-exception e)
           ;; Rate limit
           (ca/<! (ca/timeout 1000)))))))
 
-(defn <do-rpc [api rpc *tube-client *rpc-id-str->rpc *shutdown?]
+(defn <do-rpc [msg-union-schema rpc *tube-client *rpc-id->rpc *shutdown?]
   (let [{:keys [failure-time-ms cb]} rpc]
     (au/go
       (loop []
         (when (not @*shutdown?)
           (if-let [tube-client @*tube-client]
-            (send-rpc* tube-client api rpc *rpc-id-str->rpc)
+            (send-rpc* tube-client msg-union-schema rpc *rpc-id->rpc)
             (if (> (u/get-current-time-ms) failure-time-ms)
               (call-callback-w-error cb "This operation timed out.")
               (do
@@ -216,8 +240,8 @@
                 (recur)))))))))
 
 (defn start-rpc-send-loop
-  [rpc-chan api max-rpcs-per-second rpc-burst-seconds *tube-client
-   *rpc-id-str->rpc *shutdown?]
+  [rpc-chan msg-union-schema max-rpcs-per-second rpc-burst-seconds *tube-client
+   *rpc-id->rpc *shutdown?]
   (let [credit-ch (ca/chan (ca/dropping-buffer (* max-rpcs-per-second
                                                   rpc-burst-seconds)))
         credit-ch-delay-ms (/ 1000 max-rpcs-per-second)]
@@ -231,103 +255,104 @@
           (let [[rpc ch] (ca/alts! [rpc-chan (ca/timeout 100)])]
             (when (= rpc-chan ch)
               (ca/<! credit-ch) ;; Consume a credit
-              (au/<? (<do-rpc api rpc *tube-client
-                              *rpc-id-str->rpc *shutdown?))))
+              (au/<? (<do-rpc msg-union-schema rpc *tube-client
+                              *rpc-id->rpc *shutdown?))))
           (catch #?(:clj Exception :cljs js/Error) e
-              (errorf "Unexpected error in rpc-loop: %s"
-                      (lu/get-exception-msg-and-stacktrace e))))))))
+            (errorf "Unexpected error in rpc-loop: %s"
+                    (lu/get-exception-msg-and-stacktrace e))))))))
 
-(defn retry-rpc [rpc now rpc-chan max-rpc-timeout-ms]
+(defn retry-rpc [rpc now rpc-chan max-rpc-timeout-ms *rpc-id]
   (let [{:keys [timeout-ms cb]} rpc
-        rpc-id (u/make-msg-id)
+        rpc-id (get-rpc-id* *rpc-id)
         new-rpc (assoc rpc
                        :rpc-id rpc-id
-                       :rpc-id-str (ba/byte-array->b64 rpc-id)
                        :retry-time-ms (+ now timeout-ms))]
     (enqueue-rpc rpc-chan new-rpc max-rpc-timeout-ms cb)))
 
 (defn start-rpc-retry-loop
-  [rpc-chan max-rpc-timeout-ms *rpc-id-str->rpc *shutdown?]
+  [rpc-chan max-rpc-timeout-ms *rpc-id->rpc *rpc-id *shutdown?]
   (ca/go
     (while (not @*shutdown?)
       (try
-        (doseq [[rpc-id-str rpc] @*rpc-id-str->rpc]
-          (let [{:keys [retry-time-ms failure-time-ms rpc-id-str cb]} rpc
+        (doseq [[rpc-id rpc] @*rpc-id->rpc]
+          (let [{:keys [retry-time-ms failure-time-ms rpc-id cb]} rpc
                 now (u/get-current-time-ms)]
             (cond
               (> now failure-time-ms)
               (do
-                (swap! *rpc-id-str->rpc dissoc rpc-id-str)
+                (swap! *rpc-id->rpc dissoc rpc-id)
                 (call-callback-w-error cb "This operation timed out."))
 
               (> now retry-time-ms)
               (do
-                (swap! *rpc-id-str->rpc dissoc rpc-id-str)
-                (retry-rpc rpc now rpc-chan max-rpc-timeout-ms)))))
+                (swap! *rpc-id->rpc dissoc rpc-id)
+                (retry-rpc rpc now rpc-chan max-rpc-timeout-ms *rpc-id)))))
         (ca/<! (ca/timeout 100))
         (catch #?(:clj Exception :cljs js/Error) e
-            (lu/log-exception e))))))
+          (lu/log-exception e))))))
 
-(defn handle-rpc-success-rsp [msg-info *rpc-id-str->rpc]
-  (let [{:keys [msg-id msg]} msg-info
-        rpc-id-str (ba/byte-array->b64 msg-id)
-        {:keys [cb]} (@*rpc-id-str->rpc rpc-id-str)]
-    (swap! *rpc-id-str->rpc dissoc rpc-id-str)
+(defn handle-rpc-success-rsp [msg *rpc-id->rpc]
+  (let [{:keys [rpc-id ret]} msg
+        {:keys [cb]} (@*rpc-id->rpc rpc-id)]
+    (swap! *rpc-id->rpc dissoc rpc-id)
     (when cb
-      (call-callback-w-result cb msg))))
+      (call-callback-w-result cb ret))))
 
-(defn handle-rpc-failure-rsp [msg-info *rpc-id-str->rpc]
-  (let [{:keys [msg-id msg]} msg-info
-        {:keys [rpc-id-str error-str]} msg
-        {:keys [cb]} (@*rpc-id-str->rpc rpc-id-str)]
-    (swap! *rpc-id-str->rpc dissoc rpc-id-str)
+(defn handle-rpc-failure-rsp [msg *rpc-id->rpc]
+  (let [{:keys [rpc-id rpc-name rpc-arg failure-type error-str]} msg
+        {:keys [cb]} (@*rpc-id->rpc rpc-id)
+        error-msg (str "RPC failed.\n  RPC id: " rpc-id "\n  RPC name: "
+                       rpc-name "\n  Argument: "
+                       rpc-arg "\n  Fail type: " (name failure-type)
+                       "\n  Error msg: " error-str)]
+    (swap! *rpc-id->rpc dissoc rpc-id)
+    (when-not **silence-log**
+      (errorf "%s" error-msg))
     (when cb
-      (call-callback-w-error cb error-str))))
+      (call-callback-w-error cb error-msg))))
 
-(defn handle-event [msg-info *event-name-kw->handler]
-  (let [{:keys [msg-name msg]} msg-info
-        handler (@*event-name-kw->handler msg-name)
-        m @*event-name-kw->handler]
-    (when handler
-      (handler msg))))
-
-(defn handle-login-rsp [msg-info *login-cb]
-  (let [was-successful (:msg msg-info)]
-    (if was-successful
-      (infof "Login succeeded.")
-      (infof "Login failed."))
+(defn handle-login-rsp [msg *login-cb]
+  (let [{:keys [was-successful]} msg]
+    (when-not **silence-log**
+      (if was-successful
+        (infof "Login succeeded.")
+        (infof "Login failed.")))
     (call-callback-w-result @*login-cb was-successful)
     (reset! *login-cb nil)))
 
-(defn handle-logout-rsp [msg-info *logout-cb]
-  (let [was-successful (:msg msg-info)]
-    (if was-successful
-      (infof "Logout succeeded.")
-      (infof "Logout failed."))
+(defn handle-logout-rsp [msg *logout-cb]
+  (let [{:keys [was-successful]} msg]
+    (when-not **silence-log**
+      (if was-successful
+        (infof "Logout succeeded.")
+        (infof "Logout failed.")))
     (call-callback-w-result @*logout-cb was-successful)
     (reset! *logout-cb nil)))
 
+(defn deserialize* [msg-union-schema pcf data]
+  (l/deserialize msg-union-schema
+                 (l/get-parsing-canonical-form msg-union-schema)
+                 data))
+
 (defn start-rcv-loop
-  [*rcv-chan api *server-schema-pcf *login-cb *logout-cb *shutdown?
-   *rpc-id-str->rpc *event-name-kw->handler]
+  [*rcv-chan msg-union-schema *server-schema-pcf *shutdown?
+   *msg-record-name->handler]
   (ca/go
     (while (not @*shutdown?)
       (try
         (if-let [rcv-chan @*rcv-chan]
           (let [[data ch] (ca/alts! [rcv-chan (ca/timeout 100)])]
             (when (= rcv-chan ch)
-              (let [msg-info (api/decode api @*server-schema-pcf data)]
-                (case (:msg-type msg-info)
-                  :login-rsp (handle-login-rsp msg-info *login-cb)
-                  :logout-rsp (handle-logout-rsp msg-info *logout-cb)
-                  :rpc-success-rsp (handle-rpc-success-rsp msg-info
-                                                           *rpc-id-str->rpc)
-                  :rpc-failure-rsp (handle-rpc-failure-rsp msg-info
-                                                           *rpc-id-str->rpc)
-                  :event (handle-event msg-info *event-name-kw->handler)))))
+              (let [[msg-name msg] (l/deserialize msg-union-schema
+                                                  @*server-schema-pcf data)
+                    handler (@*msg-record-name->handler msg-name)]
+                (if handler
+                  (handler msg)
+                  (infof "No handler found for msg name: %s" msg-name)))))
+          ;; If no rcv-chan, wait for conn
           (ca/<! (ca/timeout 100)))
         (catch #?(:clj Exception :cljs js/Error) e
-            (lu/log-exception e))))))
+          (lu/log-exception e))))))
 
 ;; TODO: Measure timings and set these appropriately
 (def default-client-options
@@ -343,40 +368,63 @@
   #?(:clj (int (Math/ceil n))
      :cljs (.ceil js/Math n)))
 
+(defn make-msg-record-name->handler
+  [rpc-name-kws *login-cb *logout-cb *rpc-id->rpc]
+  (let [base {::u/login-rsp #(handle-login-rsp % *login-cb)
+              ::u/logout-rsp #(handle-logout-rsp % *logout-cb)
+              ::u/rpc-failure-rsp #(handle-rpc-failure-rsp % *rpc-id->rpc)}]
+    (reduce (fn [acc rpc-name]
+              (let [rec-name (u/make-msg-record-name :rpc-success-rsp rpc-name)]
+                (assoc acc rec-name #(handle-rpc-success-rsp % *rpc-id->rpc))))
+            base rpc-name-kws)))
+
 (s/defn make-client :- (s/protocol ICapsuleClient)
-  ([api :- (s/protocol api/IAPI)
+  ([api :- u/API
     <get-uris :- u/GetURIsFn]
    (make-client api <get-uris {}))
-  ([api :- (s/protocol api/IAPI)
+  ([api :- u/API
     <get-uris :- u/GetURIsFn
     opts :- u/ClientOptions]
    (let [opts (merge default-client-options opts)
          {:keys [max-rpcs-per-second max-rpc-timeout-ms
                  rpc-burst-seconds default-rpc-timeout-ms max-total-rpc-time-ms
                  connect-timeout-ms max-reconnect-wait-ms]} opts
+         rpc-name-kws (into #{} (keys (:rpcs api)))
+         event-name-kws (into #{} (keys (:events api)))
          rpc-chan (ca/chan (ceil (* max-rpcs-per-second rpc-burst-seconds
                                     (/ max-rpc-timeout-ms 1000))))
+         msg-union-schema (u/make-msg-union-schema api)
+         client-pcf (l/get-parsing-canonical-form msg-union-schema)
+         client-fp (u/long->byte-array (l/get-fingerprint64 msg-union-schema))
+         *rpc-id (atom 0)
          *rcv-chan (atom nil)
          *tube-client (atom nil)
-         *server-schema-pcf (atom nil)
+         *server-pcf (atom nil)
+         *server-fp (atom nil)
          *event-name-kw->handler (atom {})
          *login-cb (atom nil)
          *subject-id (atom nil)
          *credential (atom nil)
          *logout-cb (atom nil)
          *shutdown? (atom false)
-         *rpc-id-str->rpc (atom {})
+         *rpc-id->rpc (atom {})
+         *msg-record-name->handler (atom
+                                    (make-msg-record-name->handler
+                                     rpc-name-kws *login-cb *logout-cb
+                                     *rpc-id->rpc))
          client (->CapsuleClient
-                 api rpc-chan max-rpc-timeout-ms default-rpc-timeout-ms
-                 max-total-rpc-time-ms *tube-client *login-cb *subject-id
-                 *credential *logout-cb *event-name-kw->handler *shutdown?
-                 *rpc-id-str->rpc)]
-     (start-connection-loop <get-uris api *subject-id *credential *rcv-chan
-                            *tube-client *server-schema-pcf *shutdown?)
-     (start-rpc-retry-loop rpc-chan max-rpc-timeout-ms *rpc-id-str->rpc
+                 msg-union-schema rpc-name-kws event-name-kws rpc-chan
+                 max-rpc-timeout-ms default-rpc-timeout-ms max-total-rpc-time-ms
+                 *rpc-id *tube-client *login-cb *subject-id *credential
+                 *logout-cb *msg-record-name->handler *shutdown? *rpc-id->rpc)]
+     (start-connection-loop <get-uris msg-union-schema client-fp client-pcf
+                            *server-fp *server-pcf *subject-id *credential
+                            *rcv-chan *tube-client *shutdown?)
+     (start-rpc-retry-loop rpc-chan max-rpc-timeout-ms *rpc-id->rpc *rpc-id
                            *shutdown?)
-     (start-rcv-loop *rcv-chan api *server-schema-pcf *login-cb *logout-cb
-                     *shutdown? *rpc-id-str->rpc *event-name-kw->handler)
-     (start-rpc-send-loop rpc-chan api max-rpcs-per-second rpc-burst-seconds
-                          *tube-client *rpc-id-str->rpc *shutdown?)
+     (start-rcv-loop *rcv-chan msg-union-schema *server-pcf *shutdown?
+                     *msg-record-name->handler)
+     (start-rpc-send-loop rpc-chan msg-union-schema max-rpcs-per-second
+                          rpc-burst-seconds *tube-client *rpc-id->rpc
+                          *shutdown?)
      client)))

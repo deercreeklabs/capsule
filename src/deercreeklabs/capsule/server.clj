@@ -31,7 +31,6 @@
 
 (defn make-on-server-connect [routes]
   (fn on-server-connect [conn conn-id path]
-    (debugf "Got conn from %s on %s" conn-id path)
     (let [{:keys [handler]} (bidi/match-route routes path)]
       (if handler
         (handler conn conn-id path)

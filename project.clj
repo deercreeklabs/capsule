@@ -1,7 +1,7 @@
 (def externs ["capsule_externs.js"])
 
 (def compiler-defaults
-  {:npm-deps {:avsc "5.0.5"}
+  {:npm-deps {:websocket "1.0.25"}
    :install-deps true
    :parallel-build true
    :static-fns true
@@ -50,7 +50,6 @@
   :lein-release {:scm :git
                  :deploy-via :clojars}
 
-  :aot :all
   ;; For testing
   :main deercreeklabs.capsule.calc
   :pedantic? :abort
@@ -74,22 +73,20 @@
     [[doo "0.1.8"]
      [org.clojure/tools.namespace "0.2.11"]]}}
 
-  :npm {:dependencies [[avsc "5.0.5"]
-                       [websocket "1.0.25"]]
-        :devDependencies [[karma "1.7.1"]
+  :npm {:devDependencies [[karma "1.7.1"]
                           [karma-chrome-launcher "2.2.0"]
                           [karma-cljs-test "0.1.0"]
                           [karma-firefox-launcher "1.0.1"]
                           [source-map-support "0.5.0"]]}
 
   :dependencies
-  [[bidi "2.1.2" :exclusions [commons-codec prismatic/schema]]
+  [[bidi "2.1.2" :exclusions [prismatic/schema]]
    [binaryage/oops "0.5.6"]
    [com.fzakaria/slf4j-timbre "0.3.7"]
    [com.taoensso/timbre "4.10.0"]
    [deercreeklabs/async-utils "0.1.4"]
-   [deercreeklabs/baracus "0.1.0"]
-   [deercreeklabs/lancaster "0.1.7"
+   [deercreeklabs/baracus "0.1.1"]
+   [deercreeklabs/lancaster "0.1.8"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.1"]

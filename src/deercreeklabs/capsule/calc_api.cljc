@@ -1,34 +1,27 @@
 (ns deercreeklabs.capsule.calc-api
   (:require
-   [deercreeklabs.capsule.api :as capsule-api]
-   [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]))
 
-(u/configure-logging)
+(def array-of-doubles-schema (l/make-array-schema l/double-schema))
 
-(l/def-array-schema array-of-doubles-schema
-  :double)
+(def operator-schema (l/make-enum-schema ::operator
+                                         [:add :subtract :multiply :divide]))
 
-(l/def-enum-schema operator-schema
-  :add :subtract :multiply :divide)
+(def string-map-schema (l/make-map-schema l/string-schema))
 
-(l/def-map-schema string-map-schema
-  :string)
+(def calculate-arg-schema
+  (l/make-record-schema ::calculate-arg
+                        [[:nums array-of-doubles-schema]
+                         [:operator operator-schema]]))
 
-(l/def-record-schema calculate-arg-schema
-  [:nums array-of-doubles-schema]
-  [:operator operator-schema])
+(def everybody-shake-event-schema
+  (l/make-record-schema ::everybody-shake-event
+                        [[:duration-ms l/int-schema]]))
 
-(l/def-record-schema everybody-shake-event-schema
-  [:duration-ms :int])
-
-(l/def-record-schema request-event-arg-schema
-  [:event-name :string])
-
-(capsule-api/def-api api
-  {:rpcs {:calculate {:arg-schema calculate-arg-schema
-                      :ret-schema l/double-schema}
-          :request-event {:arg-schema l/string-schema
-                          :ret-schema l/boolean-schema}}
-   :events {:everybody-shake everybody-shake-event-schema
-            :custom-event string-map-schema}})
+(def api
+  {:rpcs {::calculate {:arg-schema calculate-arg-schema
+                       :ret-schema l/double-schema}
+          ::request-event {:arg-schema l/string-schema
+                           :ret-schema l/boolean-schema}}
+   :events {::everybody-shake everybody-shake-event-schema
+            ::custom-event string-map-schema}})
