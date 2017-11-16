@@ -35,8 +35,8 @@
 (def TubeConn (s/protocol tc/IConnection))
 (def GetURIsFn (s/=> au/Channel))
 (def RpcDef
-  {RpcOrEventName {(s/required-key :arg-schema) AvroSchema
-                   (s/required-key :ret-schema) AvroSchema}})
+  {RpcOrEventName {(s/required-key :arg) AvroSchema
+                   (s/required-key :ret) AvroSchema}})
 (def API
   {(s/optional-key :rpcs) RpcDef
    (s/optional-key :events) EventDef})
@@ -135,13 +135,13 @@
   (let [rec-name (make-msg-record-name :rpc-req rpc-name)]
     (l/make-record-schema rec-name
                           [[:rpc-id rpc-id-schema]
-                           [:arg (:arg-schema rpc-info)]])))
+                           [:arg (:arg rpc-info)]])))
 
 (defn make-rpc-success-rsp-schema [[rpc-name rpc-info]]
   (let [rec-name (make-msg-record-name :rpc-success-rsp rpc-name)]
     (l/make-record-schema rec-name
                           [[:rpc-id rpc-id-schema]
-                           [:ret (:ret-schema rpc-info)]])))
+                           [:ret (:ret rpc-info)]])))
 
 (defn make-event-schema [[event-name event-schema]]
   (let [rec-name (make-msg-record-name :event event-name)]
@@ -192,3 +192,50 @@
   []
   #?(:clj (System/currentTimeMillis)
      :cljs (.getTime (js/Date.))))
+
+
+(defn check-rpcs [rpcs]
+  (when-not (map? rpcs)
+    (throw (ex-info ":rpcs value must be a map."
+                    (sym-map rpcs))))
+  (doseq [[rpc-name rpc-def] rpcs]
+    (when-not (keyword? rpc-name)
+      (throw (ex-info "RPC name must be a keyword"
+                      (sym-map rpc-name rpc-def))))
+    (let [{:keys [arg ret]} rpc-def]
+      (when-not arg
+        (throw (ex-info "RPC def must include an :arg key"
+                        (sym-map rpc-name rpc-def))))
+      (when-not ret
+        (throw (ex-info "RPC def must include a :ret key"
+                        (sym-map rpc-name rpc-def))))
+      (when-not (satisfies? deercreeklabs.lancaster.schemas/IAvroSchema arg)
+        (throw (ex-info "RPC :arg value must be an AvroSchema object"
+                        (sym-map rpc-name rpc-def arg))))
+      (when-not (satisfies? deercreeklabs.lancaster.schemas/IAvroSchema ret)
+        (throw (ex-info "RPC :ret value must be an AvroSchema object"
+                        (sym-map rpc-name rpc-def ret)))))))
+
+(defn check-events [events]
+  (when-not (map? events)
+    (throw (ex-info ":events value must be a map."
+                    (sym-map events))))
+  (doseq [[event-name event-schema] events]
+    (when-not (keyword? event-name)
+      (throw (ex-info "Event name must be a keyword"
+                      (sym-map event-name events))))
+    (when-not (satisfies? deercreeklabs.lancaster.schemas/IAvroSchema
+                          event-schema)
+      (throw (ex-info "Event schema must be an AvroSchema object"
+                      (sym-map event-name event-schema events))))))
+
+(defn valid-api? [api]
+  (let [{:keys [rpcs events]} api]
+    (when (and (not rpcs) (not events))
+      (throw (ex-info "API must have either :rpcs, :events, or both."
+                      (sym-map api))))
+    (when rpcs
+      (check-rpcs rpcs))
+    (when events
+      (check-events events))
+    true))

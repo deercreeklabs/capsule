@@ -15,7 +15,7 @@
       [cljs.core.async.macros :as ca])))
 
 ;; Use this instead of fixtures, which are hard to make work w/ async testing.
-(s/set-fn-validation! false)
+(s/set-fn-validation! true)
 
 (u/configure-logging)
 
@@ -29,6 +29,9 @@
   (when s
     (let [str-len (count s)]
       (subs s 0 (min len str-len)))))
+
+(deftest test-api
+  (is (u/valid-api? calc-api/api)))
 
 (deftest test-calculate
   (au/test-async

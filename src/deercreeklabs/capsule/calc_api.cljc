@@ -19,9 +19,9 @@
                         [[:duration-ms l/int-schema]]))
 
 (def api
-  {:rpcs {::calculate {:arg-schema calculate-arg-schema
-                       :ret-schema l/double-schema}
-          ::request-event {:arg-schema l/string-schema
-                           :ret-schema l/boolean-schema}}
+  {:rpcs {::calculate {:arg calculate-arg-schema
+                       :ret l/double-schema}
+          ::request-event {:arg l/string-schema
+                           :ret l/boolean-schema}}
    :events {::everybody-shake everybody-shake-event-schema
             ::custom-event string-map-schema}})
