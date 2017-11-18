@@ -84,7 +84,7 @@
    [binaryage/oops "0.5.6"]
    [com.fzakaria/slf4j-timbre "0.3.7"]
    [com.taoensso/timbre "4.10.0"]
-   [deercreeklabs/async-utils "0.1.4"]
+   [deercreeklabs/async-utils "0.1.5"]
    [deercreeklabs/baracus "0.1.1"]
    [deercreeklabs/lancaster "0.1.8"
     :exclusions [org.apache.commons/commons-compress
@@ -94,7 +94,7 @@
    [deercreeklabs/tube "0.1.9" :exclusions [org.slf4j/slf4j-api]]
    [org.clojure/clojure "1.9.0-beta4"]
    [org.clojure/clojurescript "1.9.946"]
-   [org.clojure/core.async "0.3.443"]
+   [org.clojure/core.async "0.3.465"]
    [prismatic/schema "1.1.7"]]
 
   :cljsbuild
