@@ -1,14 +1,12 @@
-(def externs ["capsule_externs.js"])
-
 (def compiler-defaults
   {:npm-deps {:websocket "1.0.25"}
    :install-deps true
    :parallel-build true
    :static-fns true
-   ;; :pseudo-names true
-   ;; :pretty-print true
+   :pseudo-names true
+   :pretty-print true
    ;; :infer-externs true
-   })
+   :externs ["capsule_externs.js"]})
 
 (defn make-build-conf [id target-kw build-type-kw opt-level main]
   (let [build-type-str (name build-type-kw)
@@ -34,7 +32,6 @@
                                :output-dir output-dir
                                :source-map source-map)
                    main (assoc :main main)
-                   (= :advanced opt-level) (assoc :externs externs)
                    node? (assoc :target :nodejs))
         node-test? (and node? (= :test build-type-kw))]
     (cond-> {:id id
@@ -52,6 +49,7 @@
 
   ;; For testing
   :main deercreeklabs.capsule.calc
+
   :pedantic? :abort
 
   :profiles
@@ -84,14 +82,13 @@
    [binaryage/oops "0.5.6"]
    [com.fzakaria/slf4j-timbre "0.3.7"]
    [com.taoensso/timbre "4.10.0"]
-   [deercreeklabs/async-utils "0.1.5"]
+   [deercreeklabs/async-utils "0.1.6"]
    [deercreeklabs/baracus "0.1.1"]
-   [deercreeklabs/lancaster "0.1.8"
+   [deercreeklabs/lancaster "0.1.9"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
-   [deercreeklabs/log-utils "0.1.1"]
-   [deercreeklabs/stockroom "0.1.11"]
-   [deercreeklabs/tube "0.1.9" :exclusions [org.slf4j/slf4j-api]]
+   [deercreeklabs/log-utils "0.1.2"]
+   [deercreeklabs/tube "0.1.10" :exclusions [org.slf4j/slf4j-api]]
    [org.clojure/clojure "1.9.0-beta4"]
    [org.clojure/clojurescript "1.9.946"]
    [org.clojure/core.async "0.3.465"]
@@ -111,8 +108,7 @@
                       "deercreeklabs.doo-test-runner")
     ~(make-build-conf "doo-test-adv" :doo :test :advanced
                       "deercreeklabs.doo-test-runner")
-    ~(make-build-conf "build-adv" nil :build :advanced
-                      nil)]}
+    ~(make-build-conf "build-adv" nil :build :advanced nil)]}
 
   :aliases
   {"auto-test-cljs" ["do"

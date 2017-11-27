@@ -8,10 +8,7 @@
    [deercreeklabs.log-utils :as lu :refer [debugs]]
    [deercreeklabs.tube.client :as tc]
    [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]])
-  #?(:cljs
-     (:require-macros
-      [cljs.core.async.macros :as ca])))
+   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
 (def connect-timeout-ms 2000)
 (def max-reconnect-wait-ms 2000)
