@@ -29,7 +29,9 @@
   (send-event-to-subject-conns [this subject-id event-name event])
   (send-event* [this conn-info event-name event])
   (send-msg-by-schema [this tube-conn msg-schema msg])
-  (send-msg-by-name [this tube-conn msg-rec-name msg]))
+  (send-msg-by-name [this tube-conn msg-rec-name msg])
+  (close-conn [this conn-id])
+  (close-subject-conns [this subject-id]))
 
 (defrecord Endpoint [path <authenticator msg-union-schema
                      msg-record-name->handler event-name->event-msg-record-name
@@ -154,7 +156,17 @@
     (tc/send tube-conn (l/serialize msg-union-schema (l/wrap msg-schema msg))))
 
   (send-msg-by-name [this tube-conn msg-rec-name msg]
-    (tc/send tube-conn (l/serialize msg-union-schema [msg-rec-name msg]))))
+    (tc/send tube-conn (l/serialize msg-union-schema [msg-rec-name msg])))
+
+  (close-conn [this conn-id]
+    (let [conn-info (@*conn-id->conn-info conn-id)
+          tube-conn (.tube-conn ^ConnInfo conn-info)]
+      (tc/close tube-conn)))
+
+  (close-subject-conns [this subject-id]
+    (let [conn-ids (@*subject-id->authenticated-conn-ids subject-id)]
+      (doseq [conn-id conn-ids]
+        (close-conn this conn-id)))))
 
 (def default-endpoint-options
   {:path ""
