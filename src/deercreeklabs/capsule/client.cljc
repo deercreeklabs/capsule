@@ -197,30 +197,41 @@
   (ca/go
     (while (not @*shutdown?)
       (try
-        (let [uris (au/<? (<get-uris))
-              uri (rand-nth uris)
-              reconnect-ch (ca/chan)
-              rcv-chan (ca/chan)
-              tc-opts {:on-disconnect (fn on-disconnect [code reason]
-                                        (reset! *tube-client nil)
-                                        (ca/put! reconnect-ch true))
-                       :on-rcv (fn on-rcv [conn data]
-                                 (ca/put! rcv-chan data))}
-              tube-client (au/<? (tc/<make-tube-client uri connect-timeout-ms
-                                                       tc-opts))]
-          (when tube-client
-            (au/<? (<do-schema-negotiation rcv-chan tube-client client-fp
-                                           client-pcf *server-fp *server-pcf))
-            (when-let [subject-id @*subject-id]
-              (when-let [credential @*credential]
-                (log-in* tube-client msg-union-schema subject-id credential)))
-            (reset! *rcv-chan rcv-chan)
-            (reset! *tube-client tube-client)
-            (ca/<! reconnect-ch))
-          (ca/<! (ca/timeout (rand-int max-reconnect-wait-ms))))
+        (let [[uris ch] (au/alts? [(<get-uris) (ca/timeout 10000)])]
+          (if uris
+            (do
+              (when (not (sequential? uris))
+                (reset! *shutdown? true)
+                (throw (ex-info
+                        "<get-uris did not return a sequence. Shutting down."
+                        {:<get-uris-returned uris})))
+              (let [uri (rand-nth uris)
+                    reconnect-ch (ca/chan)
+                    rcv-chan (ca/chan)
+                    tc-opts {:on-disconnect (fn on-disconnect [code reason]
+                                              (reset! *tube-client nil)
+                                              (ca/put! reconnect-ch true))
+                             :on-rcv (fn on-rcv [conn data]
+                                       (ca/put! rcv-chan data))}
+                    tube-client (au/<? (tc/<make-tube-client
+                                        uri connect-timeout-ms tc-opts))]
+                (when tube-client
+                  (au/<? (<do-schema-negotiation rcv-chan tube-client client-fp
+                                                 client-pcf *server-fp
+                                                 *server-pcf))
+                  (when-let [subject-id @*subject-id]
+                    (when-let [credential @*credential]
+                      (log-in* tube-client msg-union-schema subject-id
+                               credential)))
+                  (reset! *rcv-chan rcv-chan)
+                  (reset! *tube-client tube-client)
+                  (ca/<! reconnect-ch))
+                (ca/<! (ca/timeout (rand-int max-reconnect-wait-ms)))))
+            ;; Wait before retrying
+            (ca/<! (ca/timeout 1000))))
         (catch #?(:clj Exception :cljs js/Error) e
           (lu/log-exception e)
-          ;; Rate limit
+          ;; Rate limit errors
           (ca/<! (ca/timeout 1000)))))))
 
 (defn <do-rpc [msg-union-schema rpc *tube-client *rpc-id->rpc *shutdown?]
@@ -353,13 +364,13 @@
 
 ;; TODO: Measure timings and set these appropriately
 (def default-client-options
-  {:max-rpcs-per-second 10
-   :max-rpc-timeout-ms 10000
-   :rpc-burst-seconds 5
+  {:connect-timeout-ms 5000
    :default-rpc-timeout-ms 3000
+   :max-reconnect-wait-ms 2000
+   :max-rpc-timeout-ms 10000
+   :max-rpcs-per-second 10
    :max-total-rpc-time-ms 10000
-   :connect-timeout-ms 5000
-   :max-reconnect-wait-ms 2000})
+   :rpc-burst-seconds 3})
 
 (defn ceil [n]
   #?(:clj (int (Math/ceil n))

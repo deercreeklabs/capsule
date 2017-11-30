@@ -46,10 +46,13 @@
   {(s/optional-key :path) Path
    (s/optional-key :<authenticator) Authenticator})
 (def ClientOptions
-  {(s/optional-key :default-rpc-timeout-ms) s/Int
+  {(s/optional-key :connect-timeout-ms) s/Int
+   (s/optional-key :default-rpc-timeout-ms) s/Int
+   (s/optional-key :max-reconnect-wait-ms) s/Int
    (s/optional-key :max-rpc-timeout-ms) s/Int
-   (s/optional-key :connect-timeout-ms) s/Int
-   (s/optional-key :max-reconnect-wait-ms) s/Int})
+   (s/optional-key :max-rpcs-per-second) s/Int
+   (s/optional-key :max-total-rpc-time-ms) s/Int
+   (s/optional-key :rpc-burst-seconds) s/Int})
 (def RpcCallback (s/=> s/Any s/Any))
 (def RpcInfo
   {:rpc-req-msg-record-name s/Keyword
