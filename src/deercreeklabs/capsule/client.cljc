@@ -39,7 +39,7 @@
   (tc/send tube-client (l/serialize msg-union-schema [msg-rec-name msg])))
 
 (defn send-rpc* [tube-client msg-union-schema rpc *rpc-id->rpc]
-  (let [{:keys [rpc-req-msg-record-name rpc-id arg cb]} rpc
+  (let [{:keys [rpc-req-msg-record-name rpc-id arg]} rpc
         req (u/sym-map rpc-id arg)]
     (do
       (send-msg* tube-client msg-union-schema rpc-req-msg-record-name req)
@@ -55,6 +55,17 @@
                      (if (> new-rpc-id 2147483647)
                        0
                        new-rpc-id)))))
+
+(defn make-channel-cb* [ch]
+  (fn callback[ret]
+    (let [{:keys [error result]} ret]
+      (ca/put! ch (if error
+                    (if (instance? #?(:cljs js/Error :clj Throwable)
+                                   error)
+                      error
+                      #?(:clj (Exception. ^String error)
+                         :cljs (js/Error. error)))
+                    result)))))
 
 (defprotocol ICapsuleClient
   (send-rpc
@@ -72,14 +83,14 @@
     [this]
     [this cb])
   (<log-out [this])
+  (logged-in? [this])
   (bind-event [this event-name-kw event-handler])
   (shutdown [this]))
 
 (defrecord CapsuleClient [msg-union-schema rpc-name-kws event-name-kws rpc-chan
-                          max-rpc-timeout-ms
-                          default-rpc-timeout-ms
-                          max-total-rpc-time-ms *rpc-id *tube-client *login-cb
-                          *subject-id *credential *logout-cb
+                          max-rpc-timeout-ms default-rpc-timeout-ms
+                          max-total-rpc-time-ms *rpc-id *tube-client *logged-in?
+                          *login-cb *subject-id *credential *logout-cb
                           *msg-record-name->handler *shutdown? *rpc-id->rpc]
   ICapsuleClient
   (send-rpc [this rpc-name-kw arg]
@@ -114,13 +125,13 @@
 
   (<send-rpc [this rpc-name-kw arg timeout-ms]
     (let [ch (ca/chan)
-          cb #(ca/put! ch %)]
+          cb (make-channel-cb* ch)]
       (send-rpc this rpc-name-kw arg cb timeout-ms)
       ch))
 
   (<log-in [this subject-id credential]
     (let [ch (ca/chan)
-          cb #(ca/put! ch %)]
+          cb (make-channel-cb* ch)]
       (log-in this subject-id credential cb)
       ch))
 
@@ -144,9 +155,12 @@
 
   (<log-out [this]
     (let [ch (ca/chan)
-          cb #(ca/put! ch %)]
+          cb (make-channel-cb* ch)]
       (log-out this cb)
       ch))
+
+  (logged-in? [this]
+    @*logged-in?)
 
   (bind-event [this event-name-kw event-handler]
     (if-not (event-name-kws event-name-kw)
@@ -319,21 +333,28 @@
     (when cb
       (call-callback-w-error cb error-msg))))
 
-(defn handle-login-rsp [msg *login-cb]
+(defn handle-login-rsp [msg *logged-in *login-cb]
   (let [{:keys [was-successful]} msg]
-    (when-not **silence-log**
-      (if was-successful
-        (infof "Login succeeded.")
-        (infof "Login failed.")))
+    (if was-successful
+      (do
+        (when-not **silence-log**
+          (infof "Login succeeded."))
+        (reset! *logged-in true))
+      (do
+        (when-not **silence-log**
+          (infof "Login failed."))
+        (reset! *logged-in false)))
     (call-callback-w-result @*login-cb was-successful)
     (reset! *login-cb nil)))
 
-(defn handle-logout-rsp [msg *logout-cb]
+(defn handle-logout-rsp [msg *logged-in *logout-cb]
   (let [{:keys [was-successful]} msg]
-    (when-not **silence-log**
-      (if was-successful
-        (infof "Logout succeeded.")
-        (infof "Logout failed.")))
+    (if was-successful
+      (do
+        (when-not **silence-log**
+          (infof "Logout succeeded."))
+        (reset! *logged-in false))
+      (infof "Logout failed."))
     (call-callback-w-result @*logout-cb was-successful)
     (reset! *logout-cb nil)))
 
@@ -377,9 +398,9 @@
      :cljs (.ceil js/Math n)))
 
 (defn make-msg-record-name->handler
-  [rpc-name-kws *login-cb *logout-cb *rpc-id->rpc]
-  (let [base {::u/login-rsp #(handle-login-rsp % *login-cb)
-              ::u/logout-rsp #(handle-logout-rsp % *logout-cb)
+  [rpc-name-kws *logged-in? *login-cb *logout-cb *rpc-id->rpc]
+  (let [base {::u/login-rsp #(handle-login-rsp % *logged-in? *login-cb)
+              ::u/logout-rsp #(handle-logout-rsp % *logged-in? *logout-cb)
               ::u/rpc-failure-rsp #(handle-rpc-failure-rsp % *rpc-id->rpc)}]
     (reduce (fn [acc rpc-name]
               (let [rec-name (u/make-msg-record-name :rpc-success-rsp rpc-name)]
@@ -410,6 +431,7 @@
          *server-pcf (atom nil)
          *server-fp (atom nil)
          *event-name-kw->handler (atom {})
+         *logged-in? (atom false)
          *login-cb (atom nil)
          *subject-id (atom nil)
          *credential (atom nil)
@@ -418,13 +440,14 @@
          *rpc-id->rpc (atom {})
          *msg-record-name->handler (atom
                                     (make-msg-record-name->handler
-                                     rpc-name-kws *login-cb *logout-cb
-                                     *rpc-id->rpc))
+                                     rpc-name-kws *logged-in?
+                                     *login-cb *logout-cb *rpc-id->rpc))
          client (->CapsuleClient
                  msg-union-schema rpc-name-kws event-name-kws rpc-chan
                  max-rpc-timeout-ms default-rpc-timeout-ms max-total-rpc-time-ms
-                 *rpc-id *tube-client *login-cb *subject-id *credential
-                 *logout-cb *msg-record-name->handler *shutdown? *rpc-id->rpc)]
+                 *rpc-id *tube-client *logged-in? *login-cb *subject-id
+                 *credential *logout-cb *msg-record-name->handler *shutdown?
+                 *rpc-id->rpc)]
      (start-connection-loop <get-uris msg-union-schema client-fp client-pcf
                             *server-fp *server-pcf *subject-id *credential
                             *rcv-chan *tube-client *shutdown?)

@@ -38,14 +38,12 @@
        (try
          (let [arg {:nums [1 2 3]
                     :operator :add}
-               expected {:error nil
-                         :result 6.0}
                [v ch] (au/alts?
                        [(cc/<send-rpc client
                                       ::calc-api/calculate
                                       arg)
-                                 (ca/timeout rpc-timeout)])]
-           (is (= expected v)))
+                        (ca/timeout rpc-timeout)])]
+           (is (= 6.0 v)))
          (finally
            (cc/shutdown client)))))))
 
@@ -57,12 +55,12 @@
        (let [client (cc/make-client calc-api/api <get-uris)]
          (try
            (let [chs [(cc/<send-rpc client ::calc-api/request-event
-                                                   "everybody-shake")
+                                    "everybody-shake")
                       (ca/timeout rpc-timeout)]
-                 [rsp ch] (au/alts? chs)
-                 {:keys [error result]} rsp]
-             (is (nil? result))
-             (is (re-find #"[Uu]nauthorized" error)))
+                 [rsp ch] (au/alts? chs)]
+             (is (= :did-not-throw :should-not-get-here)))
+           (catch #?(:clj Exception :cljs js/Error) e
+             (is (re-find #"[Uu]nauthorized" (lu/get-exception-msg e))))
            (finally
              (cc/shutdown client))))))))
 
@@ -80,11 +78,11 @@
            (let [login-ch (cc/<log-in client "test" "test")
                  [v ch] (au/alts? [login-ch (ca/timeout rpc-timeout)])
                  _ (is (= login-ch ch))
-                 _ (is (= {:error nil :result true} v))
+                 _ (is (= true v))
                  [v ch] (au/alts? [(cc/<send-rpc client ::calc-api/request-event
                                                  (name event-name))
                                    (ca/timeout rpc-timeout)])
-                 _ (is (= {:error nil, :result true} v))
+                 _ (is (= true v))
                  [v ch] (au/alts? [event-ch (ca/timeout rpc-timeout)])]
              (is (= event-ch ch))
              (is (= {:duration-ms 1000} v)))
@@ -100,29 +98,38 @@
          (try
            (let [event-name ::calc-api/everybody-shake
                  event-ch (ca/chan)
-                 event-handler #(ca/put! event-ch %)
-                 _ (cc/bind-event client event-name event-handler)
-                 [rsp ch] (au/alts? [(cc/<send-rpc client
-                                                   ::calc-api/request-event
-                                                   (name event-name))
+                 event-handler #(ca/put! event-ch %)]
+             (cc/bind-event client event-name event-handler)
+             (try
+               (au/alts? [(cc/<send-rpc client ::calc-api/request-event
+                                        (name event-name))
+                          (ca/timeout rpc-timeout)])
+               (is (= :did-not-throw :should-not-get-here))
+               (catch #?(:clj Exception :cljs js/Error) e
+                 (is (re-find #"[Uu]nauthorized" (lu/get-exception-msg e)))))
+
+             (let [[v ch] (au/alts? [(cc/<log-in client "test" "test")
                                      (ca/timeout rpc-timeout)])
-                 _ (is (re-find #"[Uu]nauthorized" (:error rsp)))
-                 [v ch] (au/alts? [(cc/<log-in client "test" "test")
-                                   (ca/timeout rpc-timeout)])
-                 [rsp ch] (au/alts? [(cc/<send-rpc client
-                                                   ::calc-api/request-event
-                                                   (name event-name))
-                                     (ca/timeout rpc-timeout)])
-                 _ (is (= {:error nil, :result true} rsp))
-                 [v ch] (au/alts? [event-ch (ca/timeout rpc-timeout)])
-                 _ (is (= {:duration-ms 1000} v))
-                 [v ch] (au/alts? [(cc/<log-out client)
-                                   (ca/timeout rpc-timeout)])
-                 [rsp ch] (au/alts? [(cc/<send-rpc client
-                                                   ::calc-api/request-event
-                                                   (name event-name))
-                                     (ca/timeout rpc-timeout)])]
-             (is (re-find #"[Uu]nauthorized" (:error rsp))))
+                   _ (is (= true (cc/logged-in? client)))
+                   [rsp ch] (au/alts? [(cc/<send-rpc client
+                                                     ::calc-api/request-event
+                                                     (name event-name))
+                                       (ca/timeout rpc-timeout)])
+                   _ (is (= true rsp))
+                   [v ch] (au/alts? [event-ch (ca/timeout rpc-timeout)])
+                   _ (is (= {:duration-ms 1000} v))
+                   [rsp ch] (au/alts? [(cc/<log-out client)
+                                       (ca/timeout rpc-timeout)])]
+               (is (= true rsp))
+               (is (= false (cc/logged-in? client)))
+               (try
+                 (au/alts? [(cc/<send-rpc client ::calc-api/request-event
+                                          (name event-name))
+                            (ca/timeout rpc-timeout)])
+                 (is (= :did-not-throw :should-not-get-here))
+                 (catch #?(:clj Exception :cljs js/Error) e
+                   (is (re-find #"[Uu]nauthorized"
+                                (lu/get-exception-msg e)))))))
            (finally
              (cc/shutdown client))))))))
 
@@ -132,11 +139,12 @@
    (ca/go
      (let [client (cc/make-client calc-api/api <get-uris)]
        (try
-         (let [[rsp ch] (au/alts? [(cc/<send-rpc client
-                                                 :non-existent "arg")
-                                   (ca/timeout rpc-timeout)])]
-           (is (= "RPC `:non-existent` is not in the API."
-                  (slice-str (:error rsp) 38))))
+         (au/alts? [(cc/<send-rpc client :non-existent "arg")
+                    (ca/timeout rpc-timeout)])
+         (is (= :did-not-throw :should-not-get-here))
+         (catch #?(:clj Exception :cljs js/Error) e
+           (is (re-find #"RPC `:non-existent` is not in the API."
+                        (lu/get-exception-msg e))))
          (finally
            (cc/shutdown client)))))))
 
@@ -146,9 +154,9 @@
       (cc/bind-event client :non-existent (constantly :foo))
       (is (= :did-not-throw :this-test))
       (catch #?(:clj Exception :cljs js/Error) e
-          (let [{:keys [subtype error-str event-name-kw]} (ex-data e)]
-            (is (= :unknown-event-name-kw subtype))
-            (is (= "Event `:non-existent` is not in the API." error-str))
-            (is (= :non-existent event-name-kw))))
+        (let [{:keys [subtype error-str event-name-kw]} (ex-data e)]
+          (is (= :unknown-event-name-kw subtype))
+          (is (= "Event `:non-existent` is not in the API." error-str))
+          (is (= :non-existent event-name-kw))))
       (finally
         (cc/shutdown client)))))
