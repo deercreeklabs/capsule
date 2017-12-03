@@ -59,8 +59,9 @@
               [msg-name msg] (decoder data)
               <handler (msg-record-name->handler msg-name)]
           (when (not <handler)
-            (throw (ex-info (str "No handler is defined for " msg-name)
-                            (u/sym-map msg-name msg <handler))))
+            (let [data (ba/byte-array->debug-str data)]
+              (throw (ex-info (str "No handler is defined for " msg-name)
+                              (u/sym-map msg-name msg <handler data)))))
           (try
             (au/<? (<handler this conn-id conn-info msg))
             (catch Exception e

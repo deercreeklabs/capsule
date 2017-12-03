@@ -32,7 +32,7 @@
 
 (deftest test-calculate
   (au/test-async
-   1000
+   50000
    (ca/go
      (let [client (cc/make-client calc-api/api <get-uris)]
        (try
@@ -49,7 +49,7 @@
 
 (deftest test-request-event-not-authenticated
   (au/test-async
-   1000
+   50000
    (ca/go
      (binding [cc/**silence-log** true]
        (let [client (cc/make-client calc-api/api <get-uris)]
@@ -135,7 +135,7 @@
 
 (deftest test-non-existent-rpc
   (au/test-async
-   1000
+   50000
    (ca/go
      (let [client (cc/make-client calc-api/api <get-uris)]
        (try
