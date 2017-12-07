@@ -39,7 +39,7 @@
              :compiler compiler}
       node-test? (assoc :notify-command ["node" output-to]))))
 
-(defproject deercreeklabs/capsule "0.2.5-SNAPSHOT"
+(defproject deercreeklabs/capsule "0.2.5"
   :description "A semantic layer for tube"
   :url "http://www.deercreeklabs.com"
   :license {:name "Apache License, Version 2.0"
@@ -88,7 +88,7 @@
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.2"]
-   [deercreeklabs/tube "0.1.11" :exclusions [org.slf4j/slf4j-api]]
+   [deercreeklabs/tube "0.1.13" :exclusions [org.slf4j/slf4j-api]]
    [org.clojure/clojure "1.9.0-beta4"]
    [org.clojure/clojurescript "1.9.946"]
    [org.clojure/core.async "0.3.465"]
