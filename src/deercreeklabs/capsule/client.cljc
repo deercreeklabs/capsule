@@ -11,7 +11,7 @@
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
 (def connect-timeout-ms 2000)
-(def max-reconnect-wait-ms 2000)
+(def max-reconnect-wait-ms 5000)
 (def ^:dynamic **silence-log** false)
 
 (defn call-callback-w-result [callback result]
@@ -57,14 +57,14 @@
                        new-rpc-id)))))
 
 (defn make-channel-cb* [ch]
-  (fn callback[ret]
+  (fn callback [ret]
     (let [{:keys [error result]} ret]
       (ca/put! ch (if error
                     (if (instance? #?(:cljs js/Error :clj Throwable)
                                    error)
                       error
-                      #?(:clj (Exception. ^String error)
-                         :cljs (js/Error. error)))
+                      #?(:clj (Exception. ^String (name error))
+                         :cljs (js/Error. (name error))))
                     result)))))
 
 (defprotocol ICapsuleClient
@@ -175,7 +175,9 @@
                #(event-handler (:event %))))))
 
   (shutdown [this]
-    (reset! *shutdown? true)))
+    (reset! *shutdown? true)
+    (when-let [tube-client @*tube-client]
+      (tc/close tube-client))))
 
 (defn <do-schema-negotiation
   [rcv-chan tube-client client-fp client-pcf *server-fp *server-pcf]
@@ -211,8 +213,10 @@
   (ca/go
     (while (not @*shutdown?)
       (try
-        (let [[uris ch] (au/alts? [(<get-uris) (ca/timeout 10000)])]
-          (if uris
+        (let [uris-ch (<get-uris)
+              [uris ch] (au/alts? [uris-ch (ca/timeout 10000)])]
+          (if (not= uris-ch ch)
+            (ca/<! (ca/timeout 1000)) ;; Wait before retrying
             (do
               (when (not (sequential? uris))
                 (reset! *shutdown? true)
@@ -240,10 +244,15 @@
                   (reset! *rcv-chan rcv-chan)
                   (reset! *tube-client tube-client)
                   (ca/<! reconnect-ch))
-                (ca/<! (ca/timeout (rand-int max-reconnect-wait-ms)))))
-            ;; Wait before retrying
-            (ca/<! (ca/timeout 1000))))
+                (let [min-wait 1000
+                      range (- max-reconnect-wait-ms min-wait)
+                      range (if (pos? range)
+                              range
+                              0)
+                      wait (+ min-wait (rand-int range))]
+                  (ca/<! (ca/timeout wait)))))))
         (catch #?(:clj Exception :cljs js/Error) e
+          (errorf "Unexpected exception in capsule connection loop.")
           (lu/log-exception e)
           ;; Rate limit errors
           (ca/<! (ca/timeout 1000)))))))
@@ -280,8 +289,10 @@
               (au/<? (<do-rpc msg-union-schema rpc *tube-client
                               *rpc-id->rpc *shutdown?))))
           (catch #?(:clj Exception :cljs js/Error) e
-            (errorf "Unexpected error in rpc-loop: %s"
-                    (lu/get-exception-msg-and-stacktrace e))))))))
+            (errorf "Unexpected error in rpc-send-loop: %s"
+                    (lu/get-exception-msg-and-stacktrace e))
+            ;; Rate limit
+            (ca/<! (ca/timeout 1000))))))))
 
 (defn retry-rpc [rpc now rpc-chan max-rpc-timeout-ms *rpc-id]
   (let [{:keys [timeout-ms cb]} rpc
@@ -309,9 +320,11 @@
               (do
                 (swap! *rpc-id->rpc dissoc rpc-id)
                 (retry-rpc rpc now rpc-chan max-rpc-timeout-ms *rpc-id)))))
-        (ca/<! (ca/timeout 100))
+        (ca/<! (ca/timeout 1000))
         (catch #?(:clj Exception :cljs js/Error) e
-          (lu/log-exception e))))))
+          (lu/log-exception e)
+          ;; Rate limit
+          (ca/<! (ca/timeout 1000)))))))
 
 (defn handle-rpc-success-rsp [msg *rpc-id->rpc]
   (let [{:keys [rpc-id ret]} msg
@@ -370,7 +383,7 @@
     (while (not @*shutdown?)
       (try
         (if-let [rcv-chan @*rcv-chan]
-          (let [[data ch] (ca/alts! [rcv-chan (ca/timeout 100)])]
+          (let [[data ch] (ca/alts! [rcv-chan (ca/timeout 1000)])]
             (when (= rcv-chan ch)
               (let [[msg-name msg] (l/deserialize msg-union-schema
                                                   @*server-schema-pcf data)
@@ -381,7 +394,10 @@
           ;; If no rcv-chan, wait for conn
           (ca/<! (ca/timeout 100)))
         (catch #?(:clj Exception :cljs js/Error) e
-          (lu/log-exception e))))))
+          (errorf "Unexpected error in rcv-loop.")
+          (lu/log-exception e)
+          ;; Rate limit
+          (ca/<! (ca/timeout 1000)))))))
 
 ;; TODO: Measure timings and set these appropriately
 (def default-client-options

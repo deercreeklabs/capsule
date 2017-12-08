@@ -8,6 +8,8 @@
    [schema.core :as s]
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
+(def default-port 8080)
+
 (defprotocol ICapsuleServer
   (start [this])
   (stop [this]))
@@ -35,8 +37,6 @@
       (if handler
         (handler conn conn-id path)
         (errorf "No handler matches for path %s" path)))))
-
-(def default-port 8080)
 
 (s/defn make-server :- (s/protocol ICapsuleServer)
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]]

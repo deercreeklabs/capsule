@@ -109,7 +109,7 @@
             {:keys [subject-id credential]} msg
             roles (au/<? (<authenticator subject-id credential))
             rsp {:was-successful (boolean roles)}]
-        (when roles
+        (if (set? roles)
           (let [decoder (.decoder ^ConnInfo conn-info)
                 new-conn-info (->ConnInfo tube-conn decoder subject-id roles)]
             (swap! *conn-id->conn-info assoc conn-id new-conn-info)
@@ -117,7 +117,9 @@
                    (fn [old-conn-ids]
                      (if old-conn-ids
                        (conj old-conn-ids conn-id)
-                       #{conn-id})))))
+                       #{conn-id}))))
+          (throw (ex-info "Authenticator did not return a set of roles."
+                          (u/sym-map roles))))
         (send-msg-by-schema this tube-conn u/login-rsp-schema rsp))))
 
   (<handle-logout-req [this conn-id conn-info msg]
