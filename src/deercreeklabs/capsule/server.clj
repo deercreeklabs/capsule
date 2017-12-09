@@ -40,13 +40,14 @@
 
 (s/defn make-server :- (s/protocol ICapsuleServer)
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]]
-   (make-server endpoints default-port))
+   (make-server endpoints default-port {}))
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]
-    port :- s/Int]
+    port :- s/Int
+    tube-server-options :- {s/Keyword s/Any}]
    (let [routes (make-routes endpoints)
          on-connect (make-on-server-connect routes)
          on-disconnect (fn [conn-id code reason])
          compression-type :smart
          tube-server (ts/make-tube-server port on-connect on-disconnect
-                                          compression-type)]
+                                          compression-type tube-server-options)]
      (->CapsuleServer tube-server))))

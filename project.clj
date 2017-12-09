@@ -88,8 +88,8 @@
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.2"]
-   [deercreeklabs/tube "0.1.13" :exclusions [org.slf4j/slf4j-api]]
-   [org.clojure/clojure "1.9.0-beta4"]
+   [deercreeklabs/tube "0.1.14" :exclusions [org.slf4j/slf4j-api]]
+   [org.clojure/clojure "1.9.0"]
    [org.clojure/clojurescript "1.9.946"]
    [org.clojure/core.async "0.3.465"]
    [prismatic/schema "1.1.7"]]
