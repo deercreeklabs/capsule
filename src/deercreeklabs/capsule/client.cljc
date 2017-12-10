@@ -151,7 +151,7 @@
   (log-out [this cb]
     (reset! *logout-cb cb)
     (when-let [tube-client @*tube-client]
-      (send-msg* tube-client msg-union-schema ::u/logout-req nil)))
+      (send-msg* tube-client msg-union-schema ::u/logout-req {:content nil})))
 
   (<log-out [this]
     (let [ch (ca/chan)

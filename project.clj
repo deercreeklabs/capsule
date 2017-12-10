@@ -3,8 +3,8 @@
    :install-deps true
    :parallel-build true
    :static-fns true
-   :pseudo-names true
-   :pretty-print true
+   ;;:pseudo-names true
+   ;;:pretty-print true
    ;; :infer-externs true
    :externs ["capsule_externs.js"]})
 
@@ -78,13 +78,13 @@
                           [source-map-support "0.5.0"]]}
 
   :dependencies
-  [[bidi "2.1.2" :exclusions [prismatic/schema]]
+  [[bidi "2.1.2" :exclusions [prismatic/schema ring/ring-core]]
    [binaryage/oops "0.5.8"]
    [com.fzakaria/slf4j-timbre "0.3.7"]
    [com.taoensso/timbre "4.10.0"]
    [deercreeklabs/async-utils "0.1.6"]
    [deercreeklabs/baracus "0.1.1"]
-   [deercreeklabs/lancaster "0.1.9"
+   [deercreeklabs/lancaster "0.1.10"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.2"]

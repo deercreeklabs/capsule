@@ -7,7 +7,10 @@
    [deercreeklabs.tube.connection :as tc]
    #?(:clj [puget.printer :refer [cprint]])
    [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [taoensso.timbre :as timbre :refer [debugf errorf infof]])
+  #?(:cljs
+     (:require-macros
+      deercreeklabs.capsule.utils)))
 
 #?(:cljs
    (set! *warn-on-infer* true))
