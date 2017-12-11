@@ -52,11 +52,9 @@
         endpoint-opts {:path "calc"
                        :<authenticator <test-authenticate}
         endpoint (endpoint/make-endpoint calc-api/api roles->rpcs handlers
-                                         endpoint-opts)
-        opts {:keystore (System/getenv "TUBE_JKS_KEYSTORE_PATH")
-              :keystore-password (System/getenv "TUBE_JKS_KEYSTORE_PASSWORD")}]
+                                         endpoint-opts)]
     (reset! *endpoint endpoint)
-    (cs/make-server [endpoint] 8080 opts)))
+    (cs/make-server [endpoint])))
 
 (defn -main
   [& args]
