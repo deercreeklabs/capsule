@@ -62,7 +62,8 @@
    :rpc-rsp-msg-record-name s/Keyword
    :arg s/Any
    :rpc-id RpcId
-   :cb RpcCallback
+   :success-cb RpcCallback
+   :failure-cb RpcCallback
    :timeout-ms s/Num
    :retry-time-ms s/Num
    :failure-time-ms s/Num})
