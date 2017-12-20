@@ -10,7 +10,7 @@
    [schema.core :as s]
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
-(def connect-timeout-ms 2000)
+(def connect-timeout-ms 10000)
 (def max-reconnect-wait-ms 5000)
 (def ^:dynamic **silence-log** false)
 
@@ -214,6 +214,9 @@
                                               (ca/put! reconnect-ch true))
                              :on-rcv (fn on-rcv [conn data]
                                        (ca/put! rcv-chan data))}
+                    _ (when-let [old-tube-client @*tube-client]
+                        (tc/close old-tube-client)
+                        (reset! *tube-client nil))
                     tube-client (au/<? (tc/<make-tube-client
                                         uri connect-timeout-ms tc-opts))]
                 (when tube-client
