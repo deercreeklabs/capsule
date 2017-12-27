@@ -210,7 +210,6 @@
                     reconnect-ch (ca/chan)
                     rcv-chan (ca/chan)
                     tc-opts {:on-disconnect (fn on-disconnect [code reason]
-                                              (reset! *tube-client nil)
                                               (ca/put! reconnect-ch true))
                              :on-rcv (fn on-rcv [conn data]
                                        (ca/put! rcv-chan data))}

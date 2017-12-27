@@ -201,7 +201,9 @@
               (if (permitted? roles rpc-roles)
                 (let [subject-id (.subject-id conn-info)
                       metadata (u/sym-map rpc-id roles subject-id)
+                      _ (debugf "Got %s. Arg: %s" rpc-name arg)
                       ret (au/<? (<handler arg metadata))
+                      _ (debugs ret)
                       rsp (u/sym-map rpc-id ret)]
                   (send-msg-by-name endpoint tube-conn rsp-name rsp))
                 (let [rsp {:rpc-id rpc-id
