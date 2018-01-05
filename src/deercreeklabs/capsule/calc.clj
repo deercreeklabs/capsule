@@ -35,9 +35,12 @@
 
 (defn <test-authenticate [subject-id credential]
   (au/go
-    (when (and (= "test" subject-id)
-               (= "test" credential))
-      #{:admin})))
+    (if (and (= "test" subject-id)
+             (= "test" credential))
+      {:was-successful true
+       :roles #{:admin}}
+      {:was-successful false
+       :reason "Bad credentials"})))
 
 (defn make-calc-server []
   (u/configure-logging)

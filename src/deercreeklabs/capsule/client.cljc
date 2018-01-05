@@ -112,8 +112,9 @@
 
   (<log-in [this subject-id credential]
     (let [ch (ca/chan)
-          cb #(ca/put! ch %)]
-      (log-in this subject-id credential cb cb)
+          success-cb #(ca/put! ch [true %])
+          failure-cb #(ca/put! ch [false %])]
+      (log-in this subject-id credential success-cb failure-cb)
       ch))
 
   (log-in [this subject-id credential]
@@ -332,20 +333,20 @@
       (failure-cb (ex-info error-msg msg)))))
 
 (defn handle-login-rsp [msg *logged-in *login-success-cb *login-failure-cb]
-  (let [{:keys [was-successful]} msg]
+  (let [{:keys [was-successful reason]} msg]
     (if was-successful
       (do
         (when-not **silence-log**
           (infof "Login succeeded."))
         (reset! *logged-in true)
         (when-let [cb @*login-success-cb]
-          (cb true)))
+          (cb "Login succeeded")))
       (do
         (when-not **silence-log**
           (infof "Login failed."))
         (reset! *logged-in false)
         (when-let [cb @*login-failure-cb]
-          (cb false))))
+          (cb (or reason "")))))
     (reset! *login-success-cb nil)
     (reset! *login-failure-cb nil)))
 

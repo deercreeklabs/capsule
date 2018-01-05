@@ -76,9 +76,10 @@
          (try
            (cc/bind-event client event-name event-handler)
            (let [login-ch (cc/<log-in client "test" "test")
-                 [v ch] (au/alts? [login-ch (ca/timeout rpc-timeout)])
+                 [[success? reason] ch] (au/alts? [login-ch
+                                                   (ca/timeout rpc-timeout)])
                  _ (is (= login-ch ch))
-                 _ (is (= true v))
+                 _ (is (= true success?))
                  [v ch] (au/alts? [(cc/<send-rpc client ::calc-api/request-event
                                                  (name event-name))
                                    (ca/timeout rpc-timeout)])
@@ -86,6 +87,22 @@
                  [v ch] (au/alts? [event-ch (ca/timeout rpc-timeout)])]
              (is (= event-ch ch))
              (is (= {:duration-ms 1000} v)))
+           (finally
+             (cc/shutdown client))))))))
+
+(deftest test-bad-credentials
+  (au/test-async
+   #?(:cljs 25000 :clj 3000)
+   (ca/go
+     (binding [cc/**silence-log** true]
+       (let [client (cc/make-client calc-api/api <get-uris )]
+         (try
+           (let [login-ch (cc/<log-in client "bad" "credentials")
+                 [[success? reason] ch] (au/alts? [login-ch
+                                                   (ca/timeout rpc-timeout)])
+                 _ (is (= login-ch ch))
+                 _ (is (= false success?))
+                 _ (is (= "Bad credentials" reason))])
            (finally
              (cc/shutdown client))))))))
 
@@ -108,8 +125,10 @@
                (catch #?(:clj Exception :cljs js/Error) e
                  (is (re-find #"[Uu]nauthorized" (lu/get-exception-msg e)))))
 
-             (let [[v ch] (au/alts? [(cc/<log-in client "test" "test")
-                                     (ca/timeout rpc-timeout)])
+             (let [[ret ch] (au/alts? [(cc/<log-in client "test" "test")
+                                       (ca/timeout rpc-timeout)])
+                   [success? reason] ret
+                   _ (is (= true success?))
                    _ (is (= true (cc/logged-in? client)))
                    [rsp ch] (au/alts? [(cc/<send-rpc client
                                                      ::calc-api/request-event
@@ -160,3 +179,5 @@
           (is (= :non-existent event-name-kw))))
       (finally
         (cc/shutdown client)))))
+
+;; TODO: Test bad credentials

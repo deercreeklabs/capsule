@@ -122,7 +122,8 @@
                          [:credential l/string-schema]]))
 (def login-rsp-schema
   (l/make-record-schema ::login-rsp
-                        [[:was-successful l/boolean-schema]]))
+                        [[:was-successful l/boolean-schema]
+                         [:reason null-or-string-schema]]))
 (def logout-req-schema
   (l/make-record-schema ::logout-req
                         [[:content l/null-schema]]))
