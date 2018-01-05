@@ -4,6 +4,7 @@
    [deercreeklabs.capsule.endpoint :as endpoint]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
+   [deercreeklabs.tube.connection :as tc]
    [deercreeklabs.tube.server :as ts]
    [schema.core :as s]
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
@@ -24,19 +25,20 @@
 
 (defn make-route [endpoint]
   (let [path (endpoint/get-path endpoint)
-        connection-handler (fn [tube-conn conn-id path]
-                             (endpoint/on-connect endpoint tube-conn conn-id))]
+        connection-handler (fn [tube-conn]
+                             (endpoint/on-connect endpoint tube-conn))]
     [path connection-handler]))
 
 (defn make-routes [endpoints]
   ["/" (apply hash-map (mapcat make-route endpoints))])
 
 (defn make-on-server-connect [routes]
-  (fn on-server-connect [conn conn-id path]
-    (let [{:keys [handler]} (bidi/match-route routes path)]
+  (fn on-server-connect [conn]
+    (let [uri (tc/get-uri conn)
+          {:keys [handler]} (bidi/match-route routes uri)]
       (if handler
-        (handler conn conn-id path)
-        (errorf "No handler matches for path %s" path)))))
+        (handler conn)
+        (errorf "No handler matches for path %s" uri)))))
 
 (s/defn make-server :- (s/protocol ICapsuleServer)
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]]

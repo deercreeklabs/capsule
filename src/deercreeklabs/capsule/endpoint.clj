@@ -10,6 +10,8 @@
    [schema.core :as s]
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
+(primitive-math/use-primitive-operators)
+
 (deftype ConnInfo [tube-conn decoder subject-id roles])
 
 (defn decode-handshake-req [data]
@@ -18,11 +20,12 @@
 
 (defprotocol IEndpoint
   (get-path [this])
-  (on-connect [this tube-conn conn-id])
-  (on-rcv [this conn-id tube-conn data])
-  (<handle-login-req [this conn-id conn-info msg])
-  (<handle-logout-req [this conn-id conn-info msg])
-  (<do-schema-negotiation [this conn-id tube-conn data])
+  (get-conn-count [this])
+  (on-connect [this tube-conn])
+  (on-rcv [this tube-conn data])
+  (<handle-login-req [this conn-info msg])
+  (<handle-logout-req [this conn-info msg])
+  (<do-schema-negotiation [this tube-conn data])
   (get-decoder [this client-fp client-pcf])
   (send-event-to-all-conns [this event-name event])
   (send-event-to-conn [this conn-id event-name event])
@@ -36,40 +39,46 @@
 (defrecord Endpoint [path <authenticator msg-union-schema
                      msg-record-name->handler event-name->event-msg-record-name
                      *conn-id->conn-info *subject-id->authenticated-conn-ids
-                     *decoders]
+                     *decoders *conn-count]
   IEndpoint
   (get-path [this]
     path)
 
-  (on-connect [this tube-conn conn-id]
-    (tc/set-on-rcv tube-conn (partial on-rcv this conn-id))
+  (on-connect [this tube-conn]
+    (swap! *conn-count #(inc (int %)))
+    (tc/set-on-rcv tube-conn (fn [conn data]
+                               (on-rcv this conn data)))
     (tc/set-on-close tube-conn
                      (fn [tube-conn code reason]
-                       (when-let [^ConnInfo conn-info (@*conn-id->conn-info
-                                                       conn-id)]
-                         (swap! *conn-id->conn-info dissoc conn-id)
-                         (when-let [subject-id (.subject-id conn-info)]
-                           (swap! *subject-id->authenticated-conn-ids
-                                  dissoc subject-id))))))
+                       (let [conn-id (tc/get-conn-id tube-conn)]
+                         (swap! *conn-count #(dec (int %)))
+                         (when-let [^ConnInfo conn-info (@*conn-id->conn-info
+                                                         conn-id)]
+                           (swap! *conn-id->conn-info dissoc conn-id)
+                           (when-let [subject-id (.subject-id conn-info)]
+                             (swap! *subject-id->authenticated-conn-ids
+                                    dissoc subject-id)))))))
 
-  (on-rcv [this conn-id tube-conn data]
-    (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
-      (ca/go
-        (let [decoder (.decoder conn-info)
-              [msg-name msg] (decoder data)
-              <handler (msg-record-name->handler msg-name)]
-          (when (not <handler)
-            (let [data (ba/byte-array->debug-str data)]
-              (throw (ex-info (str "No handler is defined for " msg-name)
-                              (u/sym-map msg-name msg <handler data)))))
-          (try
-            (au/<? (<handler this conn-id conn-info msg))
-            (catch Exception e
-              (errorf "Error in handler for %s.%s" msg-name
-                      (lu/get-exception-msg-and-stacktrace e))))))
-      (<do-schema-negotiation this conn-id tube-conn data)))
+  (on-rcv [this tube-conn data]
+    (let [conn-id (tc/get-conn-id tube-conn)]
+      (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
+        (ca/go
+          (let [decoder (.decoder conn-info)
+                [msg-name msg] (decoder data)
+                <handler (msg-record-name->handler msg-name)]
+            (when (not <handler)
+              (let [data (ba/byte-array->debug-str data)]
+                (throw (ex-info (str "No handler is defined for " msg-name)
+                                (u/sym-map msg-name msg <handler data)))))
+            (try
+              (debugs <handler)
+              (au/<? (<handler this conn-info msg))
+              (catch Exception e
+                (errorf "Error in handler for %s.%s" msg-name
+                        (lu/get-exception-msg-and-stacktrace e))))))
+        (<do-schema-negotiation this tube-conn data))))
 
-  (<do-schema-negotiation [this conn-id tube-conn data]
+  (<do-schema-negotiation [this tube-conn data]
     (ca/go
       (try
         (let [req (decode-handshake-req data)
@@ -90,7 +99,8 @@
                                                :server-pcf server-pcf))]
           (tc/send tube-conn (l/serialize u/handshake-rsp-schema rsp))
           (when decoder
-            (let [conn-info (->ConnInfo tube-conn decoder nil nil)]
+            (let [conn-info (->ConnInfo tube-conn decoder nil nil)
+                  conn-id (tc/get-conn-id tube-conn)]
               (swap! *conn-id->conn-info assoc conn-id conn-info))))
         (catch Exception e
           (lu/log-exception e)))))
@@ -103,9 +113,10 @@
               (swap! *decoders assoc k decoder)
               decoder)))))
 
-  (<handle-login-req [this conn-id conn-info msg]
+  (<handle-login-req [this conn-info msg]
     (au/go
       (let [tube-conn (.tube-conn ^ConnInfo conn-info)
+            conn-id (tc/get-conn-id tube-conn)
             {:keys [subject-id credential]} msg
             ret (au/<? (<authenticator subject-id credential))
             {:keys [was-successful roles reason]} ret
@@ -124,9 +135,10 @@
                          #{conn-id}))))))
         (send-msg-by-schema this tube-conn u/login-rsp-schema rsp))))
 
-  (<handle-logout-req [this conn-id conn-info msg]
+  (<handle-logout-req [this conn-info msg]
     (au/go
       (let [tube-conn (.tube-conn ^ConnInfo conn-info)
+            conn-id (tc/get-conn-id tube-conn)
             decoder (.decoder ^ConnInfo conn-info)
             subject-id (.subject-id ^ConnInfo conn-info)
             new-conn-info (->ConnInfo tube-conn decoder nil nil)]
@@ -193,7 +205,7 @@
 
 (defn make-rpc-handler [rpc-name rsp-name rpc->roles <handler]
   (let [rpc-roles (rpc->roles rpc-name)]
-    (fn [endpoint conn-id ^ConnInfo conn-info msg]
+    (fn [endpoint ^ConnInfo conn-info msg]
       (ca/go
         (let [{:keys [rpc-id arg]} msg
               tube-conn (.tube-conn conn-info)]
@@ -266,9 +278,10 @@
          *conn-id->conn-info (atom {})
          *subject-id->authenticated-conn-ids (atom {})
          ;; TODO: Pre-seed *decoders with server-pcf
-         *decoders (atom {})]
+         *decoders (atom {})
+         *conn-count (atom 0)]
      ;; Change name of <authenticator? Handle sync or async automatically?
      (->Endpoint path <authenticator msg-union-schema
                  msg-record-name->handler event-name->event-msg-record-name
                  *conn-id->conn-info *subject-id->authenticated-conn-ids
-                 *decoders))))
+                 *decoders *conn-count))))

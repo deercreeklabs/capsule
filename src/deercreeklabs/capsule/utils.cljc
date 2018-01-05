@@ -194,7 +194,7 @@
    {:level :debug
     :output-fn lu/short-log-output-fn
     :appenders
-    {:println {:ns-blacklist ["io.netty.*"]}}}))
+    {:println {:ns-blacklist ["org.eclipse.jetty.*"]}}}))
 
 (s/defn get-current-time-ms :- s/Num
   []
