@@ -13,15 +13,23 @@
 
 (defprotocol ICapsuleServer
   (start [this])
-  (stop [this]))
+  (stop [this])
+  (get-conn-counts [this]))
 
-(defrecord CapsuleServer [tube-server]
+(defrecord CapsuleServer [tube-server endpoints]
   ICapsuleServer
   (start [this]
     (ts/start tube-server))
 
   (stop [this]
-    (ts/stop tube-server)))
+    (ts/stop tube-server))
+
+  (get-conn-counts [this]
+    (reduce (fn [acc endpoint]
+              (let [path (endpoint/get-path endpoint)
+                    conn-count (endpoint/get-conn-count endpoint)]
+                (assoc acc path conn-count)))
+            {} endpoints)))
 
 (defn make-route [endpoint]
   (let [path (endpoint/get-path endpoint)
@@ -48,8 +56,8 @@
     tube-server-options :- {s/Keyword s/Any}]
    (let [routes (make-routes endpoints)
          on-connect (make-on-server-connect routes)
-         on-disconnect (fn [conn-id code reason])
+         on-disconnect (fn [conn code reason])
          compression-type :smart
          tube-server (ts/make-tube-server port on-connect on-disconnect
                                           compression-type tube-server-options)]
-     (->CapsuleServer tube-server))))
+     (->CapsuleServer tube-server endpoints))))

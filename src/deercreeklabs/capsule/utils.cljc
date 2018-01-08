@@ -26,17 +26,17 @@
 (def SubjectId s/Int)
 (def EventDef {RpcOrEventName AvroSchema})
 (def Msg s/Any)
-(def RpcId s/Int)
+(def OpId s/Int)
 (def RPCMetadata
   {:subject-id SubjectId
    :roles #{Role}
-   :rpc-id RpcId})
+   :op-id OpId})
 (def Handler (s/=> s/Any s/Any RPCMetadata))
 (def Identifier s/Str)
 (def Credential s/Str)
 (def Authenticator (s/=> au/Channel SubjectId Credential))
 (def TubeConn (s/protocol tc/IConnection))
-(def GetURIsFn (s/=> au/Channel))
+(def GetURIFn (s/=> au/Channel))
 (def RpcDef
   {RpcOrEventName {(s/required-key :arg) AvroSchema
                    (s/required-key :ret) AvroSchema}})
@@ -48,22 +48,25 @@
 (def EndpointOptions
   {(s/optional-key :path) Path
    (s/optional-key :<authenticator) Authenticator})
+(def Callback (s/=> s/Any s/Any))
 (def ClientOptions
   {(s/optional-key :connect-timeout-ms) s/Int
    (s/optional-key :default-rpc-timeout-ms) s/Int
    (s/optional-key :max-reconnect-wait-ms) s/Int
    (s/optional-key :max-rpc-timeout-ms) s/Int
-   (s/optional-key :max-rpcs-per-second) s/Int
+   (s/optional-key :max-ops-per-second) s/Int
+   (s/optional-key :op-burst-seconds) s/Int
    (s/optional-key :max-total-rpc-time-ms) s/Int
-   (s/optional-key :rpc-burst-seconds) s/Int})
-(def RpcCallback (s/=> s/Any s/Any))
-(def RpcInfo
-  {:rpc-req-msg-record-name s/Keyword
-   :rpc-rsp-msg-record-name s/Keyword
+   (s/optional-key :on-reconnect-login-failure) Callback
+   (s/optional-key :silence-log?) s/Bool})
+
+(def OpInfo
+  {:req-name s/Keyword
+   :rsp-name s/Keyword
    :arg s/Any
-   :rpc-id RpcId
-   :success-cb RpcCallback
-   :failure-cb RpcCallback
+   :op-id OpId
+   :success-cb Callback
+   :failure-cb Callback
    :timeout-ms s/Num
    :retry-time-ms s/Num
    :failure-time-ms s/Num})
@@ -85,7 +88,7 @@
         msg-name (name msg-name-kw)]
     (keyword msg-ns (str msg-name "-" (name msg-type)))))
 
-(def rpc-id-schema l/int-schema)
+(def op-id-schema l/int-schema)
 
 (def fp-schema
   (l/make-fixed-schema ::fp 8))
@@ -116,24 +119,35 @@
   (l/make-enum-schema ::rpc-failure-type
                       [:unauthorized :server-exception :client-exception]))
 
-(def login-req-schema
-  (l/make-record-schema ::login-req
+(def login-req-arg-schema
+  (l/make-record-schema ::login-req-arg
                         [[:subject-id l/string-schema]
                          [:credential l/string-schema]]))
+
+(def login-req-schema
+  (l/make-record-schema ::login-req
+                        [[:op-id op-id-schema]
+                         [:arg login-req-arg-schema]]))
+
 (def login-rsp-schema
   (l/make-record-schema ::login-rsp
-                        [[:was-successful l/boolean-schema]
+                        [[:op-id op-id-schema]
+                         [:was-successful l/boolean-schema]
                          [:reason null-or-string-schema]]))
+
 (def logout-req-schema
   (l/make-record-schema ::logout-req
-                        [[:content l/null-schema]]))
+                        [[:op-id op-id-schema]
+                         [:arg l/null-schema]]))
+
 (def logout-rsp-schema
   (l/make-record-schema ::logout-rsp
-                        [[:was-successful l/boolean-schema]]))
+                        [[:op-id op-id-schema]
+                         [:was-successful l/boolean-schema]]))
 
 (def rpc-failure-rsp-schema
   (l/make-record-schema ::rpc-failure-rsp
-                        [[:rpc-id rpc-id-schema]
+                        [[:op-id op-id-schema]
                          [:rpc-name l/string-schema]
                          [:rpc-arg l/string-schema]
                          [:failure-type rpc-failure-type-schema]
@@ -142,13 +156,13 @@
 (defn make-rpc-req-schema [[rpc-name rpc-info]]
   (let [rec-name (make-msg-record-name :rpc-req rpc-name)]
     (l/make-record-schema rec-name
-                          [[:rpc-id rpc-id-schema]
+                          [[:op-id op-id-schema]
                            [:arg (:arg rpc-info)]])))
 
 (defn make-rpc-success-rsp-schema [[rpc-name rpc-info]]
   (let [rec-name (make-msg-record-name :rpc-success-rsp rpc-name)]
     (l/make-record-schema rec-name
-                          [[:rpc-id rpc-id-schema]
+                          [[:op-id op-id-schema]
                            [:ret (:ret rpc-info)]])))
 
 (defn make-event-schema [[event-name event-schema]]

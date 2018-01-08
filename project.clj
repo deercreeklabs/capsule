@@ -95,6 +95,10 @@
    [primitive-math "0.1.6"]
    [prismatic/schema "1.1.7"]]
 
+  :test-selectors {:default (constantly true)
+                   :the-one :the-one
+                   :all (constantly true)}
+
   :cljsbuild
   {:builds
    [~(make-build-conf "node-test-none" :node :test :none

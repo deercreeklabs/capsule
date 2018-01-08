@@ -44,20 +44,29 @@
   (get-path [this]
     path)
 
+  (get-conn-count [this]
+    @*conn-count)
+
   (on-connect [this tube-conn]
     (swap! *conn-count #(inc (int %)))
-    (tc/set-on-rcv tube-conn (fn [conn data]
-                               (on-rcv this conn data)))
-    (tc/set-on-close tube-conn
-                     (fn [tube-conn code reason]
-                       (let [conn-id (tc/get-conn-id tube-conn)]
-                         (swap! *conn-count #(dec (int %)))
-                         (when-let [^ConnInfo conn-info (@*conn-id->conn-info
-                                                         conn-id)]
-                           (swap! *conn-id->conn-info dissoc conn-id)
-                           (when-let [subject-id (.subject-id conn-info)]
-                             (swap! *subject-id->authenticated-conn-ids
-                                    dissoc subject-id)))))))
+    (let [conn-id (tc/get-conn-id tube-conn)
+          remote-addr (tc/get-remote-addr tube-conn)]
+      (infof "Opened conn %s on %s from %s. Endpoint conn count: %s"
+             conn-id path remote-addr @*conn-count)
+      (tc/set-on-rcv tube-conn (fn [conn data]
+                                 (on-rcv this conn data)))
+      (tc/set-on-disconnect tube-conn
+                            (fn [tube-conn code reason]
+                              (swap! *conn-count #(dec (int %)))
+                              (infof (str "Closed conn %s on %s from %s. "
+                                          "Endpoint conn count: %s")
+                                     conn-id path remote-addr @*conn-count)
+                              (when-let [^ConnInfo conn-info
+                                         (@*conn-id->conn-info conn-id)]
+                                (swap! *conn-id->conn-info dissoc conn-id)
+                                (when-let [subject-id (.subject-id conn-info)]
+                                  (swap! *subject-id->authenticated-conn-ids
+                                         dissoc subject-id)))))))
 
   (on-rcv [this tube-conn data]
     (let [conn-id (tc/get-conn-id tube-conn)]
@@ -71,7 +80,6 @@
                 (throw (ex-info (str "No handler is defined for " msg-name)
                                 (u/sym-map msg-name msg <handler data)))))
             (try
-              (debugs <handler)
               (au/<? (<handler this conn-info msg))
               (catch Exception e
                 (errorf "Error in handler for %s.%s" msg-name
@@ -117,10 +125,11 @@
     (au/go
       (let [tube-conn (.tube-conn ^ConnInfo conn-info)
             conn-id (tc/get-conn-id tube-conn)
-            {:keys [subject-id credential]} msg
+            {:keys [op-id arg]} msg
+            {:keys [subject-id credential]} arg
             ret (au/<? (<authenticator subject-id credential))
             {:keys [was-successful roles reason]} ret
-            rsp (u/sym-map was-successful reason)]
+            rsp (u/sym-map op-id was-successful reason)]
         (when roles
           (if-not (set? roles)
             (throw (ex-info "Authenticator did not return a set of roles."
@@ -149,7 +158,8 @@
         (when (zero? (count (@*subject-id->authenticated-conn-ids subject-id)))
           (swap! *subject-id->authenticated-conn-ids dissoc subject-id))
         (send-msg-by-schema this tube-conn u/logout-rsp-schema
-                            {:was-successful true}))))
+                            {:op-id (:op-id msg)
+                             :was-successful true}))))
 
   (send-event-to-conn [this conn-id event-name event]
     (let [conn-info (@*conn-id->conn-info conn-id)]
@@ -207,19 +217,17 @@
   (let [rpc-roles (rpc->roles rpc-name)]
     (fn [endpoint ^ConnInfo conn-info msg]
       (ca/go
-        (let [{:keys [rpc-id arg]} msg
+        (let [{:keys [op-id arg]} msg
               tube-conn (.tube-conn conn-info)]
           (try
             (let [roles (or (.roles conn-info) #{:public})]
               (if (permitted? roles rpc-roles)
                 (let [subject-id (.subject-id conn-info)
-                      metadata (u/sym-map rpc-id roles subject-id)
-                      _ (debugf "Got %s. Arg: %s" rpc-name arg)
+                      metadata (u/sym-map op-id roles subject-id)
                       ret (au/<? (<handler arg metadata))
-                      _ (debugs ret)
-                      rsp (u/sym-map rpc-id ret)]
+                      rsp (u/sym-map op-id ret)]
                   (send-msg-by-name endpoint tube-conn rsp-name rsp))
-                (let [rsp {:rpc-id rpc-id
+                (let [rsp {:op-id op-id
                            :rpc-name (name rpc-name)
                            :rpc-arg "...elided..."
                            :failure-type :unauthorized
@@ -228,7 +236,7 @@
                                       u/rpc-failure-rsp-schema rsp))))
             (catch Exception e
               (let [arg-str (str arg)
-                    rsp {:rpc-id rpc-id
+                    rsp {:op-id op-id
                          :rpc-name (name rpc-name)
                          :rpc-arg (subs arg-str 0 (min (count arg-str) 500))
                          :failure-type :server-exception
