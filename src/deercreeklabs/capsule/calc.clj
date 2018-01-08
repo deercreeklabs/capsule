@@ -33,7 +33,7 @@
         (endpoint/send-event-to-all-conns @*endpoint event-name-kw event)
         true))))
 
-(defn <test-authenticate [subject-id credential]
+(defn <test-authenticate [endpoint subject-id credential]
   (au/go
     (if (and (= "test" subject-id)
              (= "test" credential))

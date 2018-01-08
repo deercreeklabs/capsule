@@ -12,6 +12,13 @@
 
 (primitive-math/use-primitive-operators)
 
+(def default-endpoint-options
+  {:path ""
+   :<authenticator (fn [endpoint subject-id credential]
+                     (let [ch (ca/chan)]
+                       (ca/put! ch {:was-successful false
+                                    :reason "No authenticator"})))})
+
 (deftype ConnInfo [tube-conn decoder subject-id roles])
 
 (defn decode-handshake-req [data]
@@ -21,6 +28,7 @@
 (defprotocol IEndpoint
   (get-path [this])
   (get-conn-count [this])
+  (get-subject-conn-count [this subject-id])
   (on-connect [this tube-conn])
   (on-rcv [this tube-conn data])
   (<handle-login-req [this conn-info msg])
@@ -46,6 +54,9 @@
 
   (get-conn-count [this]
     @*conn-count)
+
+  (get-subject-conn-count [this subject-id]
+    (count (@*subject-id->authenticated-conn-ids subject-id)))
 
   (on-connect [this tube-conn]
     (swap! *conn-count #(inc (int %)))
@@ -127,7 +138,7 @@
             conn-id (tc/get-conn-id tube-conn)
             {:keys [op-id arg]} msg
             {:keys [subject-id credential]} arg
-            ret (au/<? (<authenticator subject-id credential))
+            ret (au/<? (<authenticator this subject-id credential))
             {:keys [was-successful roles reason]} ret
             rsp (u/sym-map op-id was-successful reason)]
         (when roles
@@ -197,12 +208,6 @@
     (let [conn-ids (@*subject-id->authenticated-conn-ids subject-id)]
       (doseq [conn-id conn-ids]
         (close-conn this conn-id)))))
-
-(def default-endpoint-options
-  {:path ""
-   :<authenticator (fn [subject-id credential]
-                     (au/go
-                       false))})
 
 (defn make-event-name-map [api]
   (reduce (fn [acc event-name]
