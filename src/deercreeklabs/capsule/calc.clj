@@ -21,7 +21,7 @@
       (apply op nums))))
 
 (defn make-handle-request-event [*endpoint]
-  (fn handle-request-event [event-name-str metadata]
+  (fn <handle-request-event [event-name-str metadata]
     (au/go
       (let [[event-name-kw event] (case event-name-str
                                     "everybody-shake"
@@ -29,9 +29,23 @@
                                      {:duration-ms 1000}]
 
                                     "custom-event"
-                                    [::calc-api/custom-event "A nice string"])]
+                                    [::calc-api/custom-event
+                                     {:event-name "My event"
+                                      :event-data "Yo"}])]
         (endpoint/send-event-to-all-conns @*endpoint event-name-kw event)
         true))))
+
+(defn <handle-notify-user [*endpoint arg metadata]
+  (au/go
+    (let [{:keys [subject-id event-name event-data]} arg]
+      (endpoint/send-event-to-subject-conns
+       @*endpoint subject-id ::calc-api/custom-event
+       (u/sym-map event-name event-data))
+      true)))
+
+(defn <handle-get-num-user-conns [*endpoint subject-id metadata]
+  (au/go
+    (endpoint/get-subject-conn-count @*endpoint subject-id)))
 
 (defn <test-authenticate [endpoint subject-id credential]
   (au/go
@@ -47,11 +61,18 @@
   (let [*endpoint (atom nil)
         handlers {:rpcs {::calc-api/calculate handle-calculate
                          ::calc-api/request-event
-                         (make-handle-request-event *endpoint)}}
+                         (make-handle-request-event *endpoint)
+                         ::calc-api/notify-user
+                         (partial <handle-notify-user *endpoint)
+                         ::calc-api/get-num-user-conns
+                         (partial <handle-get-num-user-conns *endpoint)}}
         public-rpcs #{::calc-api/calculate}
         roles->rpcs {:public public-rpcs
-                     :admin (clojure.set/union public-rpcs
-                                               #{::calc-api/request-event})}
+                     :admin (clojure.set/union
+                             public-rpcs
+                             #{::calc-api/request-event
+                               ::calc-api/notify-user
+                               ::calc-api/get-num-user-conns})}
         endpoint-opts {:path "calc"
                        :<authenticator <test-authenticate}
         endpoint (endpoint/make-endpoint calc-api/api roles->rpcs handlers

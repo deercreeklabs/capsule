@@ -82,7 +82,7 @@
    [binaryage/oops "0.5.8"]
    [com.fzakaria/slf4j-timbre "0.3.8"]
    [com.taoensso/timbre "4.10.0"]
-   [deercreeklabs/async-utils "0.1.7"]
+   [deercreeklabs/async-utils "0.1.8"]
    [deercreeklabs/baracus "0.1.2"]
    [deercreeklabs/lancaster "0.1.10"
     :exclusions [org.apache.commons/commons-compress

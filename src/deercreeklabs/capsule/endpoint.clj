@@ -42,7 +42,8 @@
   (send-msg-by-schema [this tube-conn msg-schema msg])
   (send-msg-by-name [this tube-conn msg-rec-name msg])
   (close-conn [this conn-id])
-  (close-subject-conns [this subject-id]))
+  (close-subject-conns [this subject-id])
+  (on-disconnect* [this conn-id remote-addr tube-conn code reason]))
 
 (defrecord Endpoint [path <authenticator msg-union-schema
                      msg-record-name->handler event-name->event-msg-record-name
@@ -67,17 +68,7 @@
       (tc/set-on-rcv tube-conn (fn [conn data]
                                  (on-rcv this conn data)))
       (tc/set-on-disconnect tube-conn
-                            (fn [tube-conn code reason]
-                              (swap! *conn-count #(dec (int %)))
-                              (infof (str "Closed conn %s on %s from %s. "
-                                          "Endpoint conn count: %s")
-                                     conn-id path remote-addr @*conn-count)
-                              (when-let [^ConnInfo conn-info
-                                         (@*conn-id->conn-info conn-id)]
-                                (swap! *conn-id->conn-info dissoc conn-id)
-                                (when-let [subject-id (.subject-id conn-info)]
-                                  (swap! *subject-id->authenticated-conn-ids
-                                         dissoc subject-id)))))))
+                            (partial on-disconnect* this conn-id remote-addr))))
 
   (on-rcv [this tube-conn data]
     (let [conn-id (tc/get-conn-id tube-conn)]
@@ -207,7 +198,22 @@
   (close-subject-conns [this subject-id]
     (let [conn-ids (@*subject-id->authenticated-conn-ids subject-id)]
       (doseq [conn-id conn-ids]
-        (close-conn this conn-id)))))
+        (close-conn this conn-id))))
+
+  (on-disconnect* [this conn-id remote-addr tube-conn code reason]
+    (swap! *conn-count #(dec (int %)))
+    (infof (str "Closed conn %s on %s from %s. Endpoint conn count: %s")
+           conn-id path remote-addr @*conn-count)
+    (when-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
+      (swap! *conn-id->conn-info dissoc conn-id)
+      (when-let [subject-id (.subject-id conn-info)]
+        (swap! *subject-id->authenticated-conn-ids
+               (fn [m]
+                 (let [conn-ids (m subject-id)
+                       new-conn-ids (disj conn-ids conn-id)]
+                   (if (pos? (count new-conn-ids))
+                     (assoc m subject-id new-conn-ids)
+                     (dissoc m subject-id)))))))))
 
 (defn make-event-name-map [api]
   (reduce (fn [acc event-name]
@@ -229,7 +235,13 @@
               (if (permitted? roles rpc-roles)
                 (let [subject-id (.subject-id conn-info)
                       metadata (u/sym-map op-id roles subject-id)
-                      ret (au/<? (<handler arg metadata))
+                      handler-ch (<handler arg metadata)
+                      _ (when-not (au/channel? handler-ch)
+                          (throw
+                           (ex-info (str "Handler for `" rpc-name
+                                         "` did not return a channel.")
+                                    (u/sym-map handler-ch rpc-name))))
+                      ret (au/<? handler-ch)
                       rsp (u/sym-map op-id ret)]
                   (send-msg-by-name endpoint tube-conn rsp-name rsp))
                 (let [rsp {:op-id op-id

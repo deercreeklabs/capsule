@@ -86,6 +86,88 @@
          (finally
            (cc/shutdown client)))))))
 
+(defn <make-logged-in-client [subject-id credential]
+  (au/go
+    (let [login-timeout-ms 2000
+          client (cc/make-client calc-api/api <get-uri
+                                 {:silence-log? true})
+          login-ch (cc/<log-in client subject-id credential)
+          [[success? reason] ch] (au/alts? [login-ch
+                                            (ca/timeout login-timeout-ms)])]
+      (cond
+        (not= login-ch ch)
+        (do
+          (cc/shutdown client)
+          (errorf (str "Timed out waiting for login ("
+                       login-timeout-ms " ms)"))
+          false)
+
+        (not success?)
+        (do
+          (cc/shutdown client)
+          (errorf (str "Login failed: " reason))
+          false)
+
+        :else
+        client))))
+
+(deftest test-send-event-to-subject-conns
+  (au/test-async
+   #?(:cljs 25000 :clj 3000)
+   (ca/go
+     (let [num-clients 4
+           subject-id "test"
+           credential "test"
+           event-kw ::calc-api/custom-event
+           event-ch (ca/chan 1000)
+           event-handler #(ca/put! event-ch %)
+           *clients (atom [])
+           _ (dotimes [i num-clients]
+               (let [client (au/<?
+                             (<make-logged-in-client subject-id credential))]
+                 (when client
+                   (cc/bind-event client event-kw event-handler)
+                   (swap! *clients conj client))))
+           clients @*clients]
+       (is (= num-clients (count clients)))
+       (when (= num-clients (count clients))
+         (try
+           (let [rpc-ch (cc/<send-rpc (first clients)
+                                      ::calc-api/get-num-user-conns subject-id)
+                 [v ch] (au/alts? [rpc-ch (ca/timeout rpc-timeout)])
+                 _ (is (= rpc-ch ch))
+                 _ (is (= num-clients v))
+                 event-name "Listen Up!"
+                 event-data "Now!"
+                 arg (u/sym-map subject-id event-name event-data)
+                 rpc-ch (cc/<send-rpc (first clients)
+                                      ::calc-api/notify-user arg)
+                 [v ch] (au/alts? [rpc-ch (ca/timeout rpc-timeout)])
+                 _ (is (= rpc-ch ch))
+                 _ (is (= true v))
+                 ;; Check with all clients connected
+                 _ (dotimes [i num-clients]
+                     (let [[event ch] (au/alts? [event-ch (ca/timeout 1000)])]
+                       (is (= event-ch ch))
+                       (is (= (u/sym-map event-data event-name) event))))
+                 ;; Check w/ one of the clients disconnected
+                 _ (cc/shutdown (last clients))
+                 rpc-ch (cc/<send-rpc (first clients)
+                                      ::calc-api/get-num-user-conns subject-id)
+                 [v ch] (au/alts? [rpc-ch (ca/timeout rpc-timeout)])
+                 _ (is (= rpc-ch ch))
+                 _ (is (= (dec num-clients) v))
+                 rpc-ch (cc/<send-rpc (first clients)
+                                      ::calc-api/notify-user arg)
+                 [v ch] (au/alts? [rpc-ch (ca/timeout rpc-timeout)])
+                 _ (dotimes [i (dec num-clients)]
+                     (let [[event ch] (au/alts? [event-ch (ca/timeout 1000)])]
+                       (is (= event-ch ch))
+                       (is (= (u/sym-map event-data event-name) event))))])
+           (finally
+             (doseq [client clients]
+               (cc/shutdown client)))))))))
+
 (deftest test-bad-credentials
   (au/test-async
    #?(:cljs 25000 :clj 3000)
