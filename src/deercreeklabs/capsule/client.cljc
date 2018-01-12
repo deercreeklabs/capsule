@@ -11,20 +11,23 @@
    [schema.core :as s]
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
-(def initial-conn-wait-ms 5000)
-(def max-conn-wait-ms 60000)
+(def initial-conn-wait-ms 500)
+(def max-conn-wait-ms 30000)
 
 ;; TODO: Measure timings and set these appropriately
 (def default-client-options
-  {:connect-timeout-ms 5000
-   :default-op-timeout-ms 3000
-   :max-reconnect-wait-ms 2000
+  {:default-op-timeout-ms 10000
    :max-op-timeout-ms 10000
    :max-ops-per-second 10
    :op-burst-seconds 3
    :max-total-op-time-ms 10000
-   :on-reconnect-login-failure (constantly nil)
-   :silence-log? false})
+   :silence-log? false
+   :max-login-attempts 5
+   :<on-reconnect (fn [capsule-client]
+                    (ca/go
+                      nil))
+   :<get-reconnect-credentials #(ca/go
+                                  {:subject-id "" :credential ""})})
 
 (defn get-op-id* [*op-id]
   (swap! *op-id (fn [op-id]
@@ -52,7 +55,6 @@
   (logged-in? [this])
   (bind-event [this event-name-kw event-handler])
   (shutdown [this])
-  (<connect* [this])
   (enqueue-op* [this op failure-cb])
   (do-op* [this req-name rsp-name arg success-cb failure-cb timeout-ms])
   (<send-op* [this op])
@@ -61,17 +63,23 @@
   (handle-rpc-failure-rsp* [this msg])
   (handle-login-rsp* [this msg])
   (handle-logout-rsp* [this msg])
+  (<do-login* [this tube-client rcv-chan subject-id credential])
+  (<attempt-reauth* [this tube-client rcv-chan])
+  (<connect* [this])
+  (start-connect-loop* [this])
   (start-retry-loop* [this])
   (start-send-loop* [this])
   (start-rcv-loop* [this]))
 
 (defrecord CapsuleClient
-    [<get-uri *rcv-chan on-reconnect-login-failure msg-union-schema
+    [<get-uri *rcv-chan <get-reconnect-credentials
+     max-login-attempts msg-union-schema
      client-fp client-pcf *server-fp *server-pcf rpc-name-kws
      event-name-kws op-chan max-op-timeout-ms default-op-timeout-ms
      max-total-op-time-ms max-ops-per-second op-burst-seconds
-     silence-log? *op-id *tube-client *logged-in? *subject-id
-     *credential *msg-record-name->handler *shutdown? *op-id->op]
+     silence-log? reconnect-chan <on-reconnect *op-id *tube-client
+     *logged-in? *subject-id *credential *msg-record-name->handler
+     *shutdown? *op-id->op]
   ICapsuleClient
   (<send-rpc [this rpc-name-kw arg]
     (<send-rpc this rpc-name-kw arg default-op-timeout-ms))
@@ -152,68 +160,150 @@
       (tc/close tube-client)
       (reset! *tube-client nil)))
 
+  (<do-login* [this tube-client rcv-chan subject-id credential]
+    (au/go
+      (let [op-id 1
+            arg (u/sym-map subject-id credential)
+            msg (u/sym-map op-id arg)
+            _ (tc/send tube-client (l/serialize msg-union-schema
+                                                [::u/login-req msg]))
+            data (au/<? rcv-chan)
+            [msg-name msg] (l/deserialize msg-union-schema
+                                          @*server-pcf data)]
+        (if-not (= ::u/login-rsp msg-name)
+          (do
+            (errorf "Got wrong login rsp msg: %s" msg-name)
+            (shutdown this)
+            false)
+          (let [{:keys [was-successful reason]} msg]
+            (if was-successful
+              (do
+                (when-not silence-log?
+                  (infof "Reconnect login succeeded."))
+                (reset! *logged-in? true))
+              (when-not silence-log?
+                (infof "Login failed: %s" reason)))
+            was-successful)))))
+
+  (<attempt-reauth* [this tube-client rcv-chan]
+    (au/go
+      (let [subject-id @*subject-id
+            credential @*credential]
+        (when (and subject-id credential)
+          (debugf "Attempting to reauthenticate.")
+          (loop [attempts 0
+                 subject-id subject-id
+                 credential credential]
+            (let [timeout-ch (ca/timeout max-op-timeout-ms)
+                  login-ch (<do-login* this tube-client rcv-chan
+                                       subject-id credential)
+                  [success? ch] (au/alts? [timeout-ch login-ch])]
+              (if (not= login-ch ch)
+                (do
+                  (errorf "Login attempt timed out after %s ms. Shutting down."
+                          max-op-timeout-ms)
+                  (shutdown this))
+                (when-not success?
+                  (if (>= (inc attempts) max-login-attempts)
+                    (do
+                      (errorf "Max reconnect login attempts (%s) reached."
+                              max-login-attempts)
+                      (shutdown this))
+                    (let [timeout-ch (ca/timeout max-op-timeout-ms)
+                          creds-ch (<get-reconnect-credentials)
+                          [creds ch] (au/alts? [timeout-ch creds-ch])]
+                      (if (= timeout-ch ch)
+                        (do
+                          (errorf (str "<get-reconnect-credentials did not "
+                                       "return within %s ms. Shutting down.")
+                                  max-op-timeout-ms)
+                          (shutdown this))
+                        (let [{:keys [subject-id credential]} creds]
+                          (recur (inc attempts)
+                                 subject-id
+                                 credential)))))))))))))
+
   (<connect* [this]
+    (au/go
+      (debugf "Entering <connect*")
+      (loop [wait-ms initial-conn-wait-ms]
+        (when-not @*shutdown?
+          (debugf "Top of <connect* loop. wait-ms: %s" wait-ms)
+          (let [uri-ch (<get-uri)
+                [uri ch] (au/alts? [uri-ch (ca/timeout wait-ms)])]
+            (if (not= uri-ch ch)
+              (do
+                (debugf "Timed out waiting for <get-uri.")
+                (recur (min (* 2 wait-ms) max-conn-wait-ms)))
+              (do
+                (if (not (string? uri))
+                  (do
+                    (errorf "<get-uri did not return a string, returned: %s"
+                            uri)
+                    (ca/<! (ca/timeout wait-ms))
+                    (recur (min (* 2 wait-ms) max-conn-wait-ms)))
+                  (let [rcv-chan (ca/chan 1000)
+                        opts {:on-disconnect
+                              (fn [conn code reason]
+                                (when-not silence-log?
+                                  (infof
+                                   (str "Connection to %s disconnected: "
+                                        "%s (%s)")
+                                   (connection/get-uri conn) reason code))
+                                (when-let [tube-client @*tube-client]
+                                  (tc/close tube-client)
+                                  (reset! *tube-client nil)
+                                  (reset! *logged-in? false)
+                                  (ca/put! reconnect-chan true)))
+                              :on-rcv (fn on-rcv [conn data]
+                                        (ca/put! rcv-chan data))}
+                        tube-client (au/<? (tc/<make-tube-client
+                                            uri wait-ms opts))]
+                    (if-not tube-client
+                      (do
+                        (debugf "make-tube-client failed.")
+                        (ca/<! (ca/timeout wait-ms))
+                        (recur (min (* 2 wait-ms) max-conn-wait-ms)))
+                      (do
+                        (debugf "make-tube-client succeeded.")
+                        (if-not (au/<? (<do-schema-negotiation* this tube-client
+                                                                rcv-chan))
+                          (do
+                            (tc/close tube-client)
+                            (ca/<! (ca/timeout wait-ms))
+                            (recur (min (* 2 wait-ms) max-conn-wait-ms)))
+                          (if @*shutdown?
+                            (do
+                              (tc/close tube-client)
+                              false)
+                            (do
+                              (debugf "Schema negotiation succeeded.")
+                              (au/<? (<attempt-reauth* this tube-client
+                                                       rcv-chan))
+                              (if @*shutdown?
+                                (do
+                                  (tc/close tube-client)
+                                  false)
+                                (do
+                                  (debugf "tube-client is connected")
+                                  (reset! *rcv-chan rcv-chan)
+                                  (reset! *tube-client tube-client)
+                                  true))))))))))))))))
+
+  (start-connect-loop* [this]
+    (debugf "Entering start-connect-loop*")
     (ca/go
       (try
-        (loop [wait-ms initial-conn-wait-ms]
-          (when-let [tube-client @*tube-client]
-            (tc/close tube-client)
-            (reset! *tube-client nil)
-            (reset! *logged-in? false))
-          (when-not @*shutdown?
-            (let [uri-ch (<get-uri)
-                  [uri ch] (au/alts? [uri-ch (ca/timeout wait-ms)])]
-              (if (not= uri-ch ch)
-                (recur (min (* 2 wait-ms) max-conn-wait-ms))
-                (do
-                  (if (not (string? uri))
-                    (do
-                      (errorf "<get-uri did not return a string, returned: %s"
-                              uri)
-                      (recur (min (* 2 wait-ms) max-conn-wait-ms)))
-                    (let [rcv-chan (ca/chan 1000)
-                          opts {:on-disconnect
-                                (fn [conn code reason]
-                                  (when-not silence-log?
-                                    (infof
-                                     (str "Connection to %s disconnected: "
-                                          "%s (%s)")
-                                     (connection/get-uri conn) reason code))
-                                  (<connect* this))
-                                :on-rcv (fn on-rcv [conn data]
-                                          (ca/put! rcv-chan data))}
-                          tube-client (au/<? (tc/<make-tube-client
-                                              uri wait-ms opts))]
-                      (if-not tube-client
-                        (recur (min (* 2 wait-ms) max-conn-wait-ms))
-                        (do
-                          (au/<? (<do-schema-negotiation* this tube-client
-                                                          rcv-chan))
-                          (if @*shutdown?
-                            (tc/close tube-client)
-                            (do
-                              ;; If we were logged in, log in again
-                              (when-let [subject-id @*subject-id]
-                                (when-let [credential @*credential]
-                                  (let [success-ch (ca/chan)
-                                        success-cb #(ca/put! success-ch true)
-                                        _ (log-in this subject-id credential
-                                                  success-cb
-                                                  on-reconnect-login-failure)
-                                        timeout-ch (ca/timeout 10000)
-                                        [ret ch] (au/alts?
-                                                  [success-ch timeout-ch])]
-                                    (when (= timeout-ch ch)
-                                      (tc/close tube-client)
-                                      (on-reconnect-login-failure
-                                       "Timed out re-authenticating.")))))
-                              (if @*shutdown?
-                                (tc/close tube-client)
-                                (do
-                                  (reset! *rcv-chan rcv-chan)
-                                  (reset! *tube-client tube-client))))))))))))))
+        (au/<? (<connect* this))
+        (while (not @*shutdown?)
+          (let [[reconnect? ch] (ca/alts! [reconnect-chan
+                                           (ca/timeout initial-conn-wait-ms)])]
+            (when (and (= reconnect-chan ch) reconnect?)
+              (let [success? (au/<? (<connect* this))]
+                (if success?
+                  (<on-reconnect this))))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (errorf "Unexpected error while (re)connecting: %s"
+          (errorf "Unexpected error in connect loop: %s"
                   (lu/get-exception-msg-and-stacktrace e))
           (shutdown this)))))
 
@@ -257,31 +347,38 @@
                   (recur)))))))))
 
   (<do-schema-negotiation* [this tube-client rcv-chan]
-    (au/go
-      (loop [retry? false]
-        (let [known-server-fp @*server-fp
-              req (cond-> {:client-fp client-fp
-                           :server-fp (or known-server-fp client-fp)}
-                    retry? (assoc :client-pcf client-pcf))
-              _ (tc/send tube-client (l/serialize u/handshake-req-schema req))
-              rsp (l/deserialize u/handshake-rsp-schema
-                                 (l/get-parsing-canonical-form
-                                  u/handshake-rsp-schema)
-                                 (au/<? rcv-chan))
-              {:keys [match server-fp server-pcf]} rsp]
-          (case match
-            :both (do
-                    (reset! *server-fp known-server-fp)
-                    (when-not known-server-fp
-                      (reset! *server-pcf client-pcf)))
-            :client (do
-                      (reset! *server-fp server-fp)
-                      (reset! *server-pcf server-pcf))
-            :none (do
-                    (when-not (nil? server-fp)
-                      (reset! *server-fp server-fp)
-                      (reset! *server-pcf server-pcf))
-                    (recur true)))))))
+    (ca/go
+      (try
+        (loop [retry? false]
+          (let [known-server-fp @*server-fp
+                req (cond-> {:client-fp client-fp
+                             :server-fp (or known-server-fp client-fp)}
+                      retry? (assoc :client-pcf client-pcf))
+                _ (tc/send tube-client (l/serialize u/handshake-req-schema req))
+                rsp (l/deserialize u/handshake-rsp-schema
+                                   (l/get-parsing-canonical-form
+                                    u/handshake-rsp-schema)
+                                   (au/<? rcv-chan))
+                {:keys [match server-fp server-pcf]} rsp]
+            (case match
+              :both (do
+                      (reset! *server-fp known-server-fp)
+                      (when-not known-server-fp
+                        (reset! *server-pcf client-pcf))
+                      true)
+              :client (do
+                        (reset! *server-fp server-fp)
+                        (reset! *server-pcf server-pcf)
+                        true)
+              :none (do
+                      (when-not (nil? server-fp)
+                        (reset! *server-fp server-fp)
+                        (reset! *server-pcf server-pcf))
+                      (recur true)))))
+        (catch #?(:clj Exception :cljs js/Error) e
+          (errorf "Schema negotiation failed: %s"
+                  (lu/get-exception-msg-and-stacktrace e))
+          false))))
 
   (handle-rpc-success-rsp* [this msg]
     (let [{:keys [op-id ret]} msg
@@ -316,7 +413,7 @@
             (success-cb "Login succeeded")))
         (do
           (when-not silence-log?
-            (infof "Login failed."))
+            (infof "Login failed: %s" reason))
           (reset! *logged-in? false)
           (when failure-cb
             (failure-cb (or reason "Login failed.")))))))
@@ -391,7 +488,7 @@
       (while (not @*shutdown?)
         (try
           (if-let [rcv-chan @*rcv-chan]
-            (let [[data ch] (ca/alts! [rcv-chan (ca/timeout 1000)])]
+            (let [[data ch] (au/alts? [rcv-chan (ca/timeout 1000)])]
               (when (= rcv-chan ch)
                 (let [[msg-name msg] (l/deserialize msg-union-schema
                                                     @*server-pcf data)
@@ -437,10 +534,10 @@
     <get-uri :- u/GetURIFn
     opts :- u/ClientOptions]
    (let [opts (merge default-client-options opts)
-         {:keys [max-ops-per-second max-op-timeout-ms
-                 op-burst-seconds default-op-timeout-ms max-total-op-time-ms
-                 connect-timeout-ms max-reconnect-wait-ms
-                 on-reconnect-login-failure silence-log?]} opts
+         {:keys [max-ops-per-second max-op-timeout-ms op-burst-seconds
+                 default-op-timeout-ms max-total-op-time-ms
+                 <get-reconnect-credentials max-login-attempts
+                 silence-log? <on-reconnect]} opts
          rpc-name-kws (into #{} (keys (:rpcs api)))
          event-name-kws (into #{} (keys (:events api)))
          op-chan (ca/chan (ceil (* max-ops-per-second op-burst-seconds
@@ -449,6 +546,7 @@
          client-pcf (l/get-parsing-canonical-form msg-union-schema)
          client-fp (u/long->byte-array (l/get-fingerprint64 msg-union-schema))
          *rcv-chan (atom nil)
+         reconnect-chan (ca/chan)
          *op-id (atom 0)
          *tube-client (atom nil)
          *server-pcf (atom nil)
@@ -464,13 +562,15 @@
                                      rpc-name-kws *logged-in?
                                      *op-id->op))
          client (->CapsuleClient
-                 <get-uri *rcv-chan on-reconnect-login-failure msg-union-schema
+                 <get-uri *rcv-chan <get-reconnect-credentials
+                 max-login-attempts msg-union-schema
                  client-fp client-pcf *server-fp *server-pcf rpc-name-kws
                  event-name-kws op-chan max-op-timeout-ms default-op-timeout-ms
                  max-total-op-time-ms max-ops-per-second op-burst-seconds
-                 silence-log? *op-id *tube-client *logged-in? *subject-id
-                 *credential *msg-record-name->handler *shutdown? *op-id->op)]
-     (<connect* client)
+                 silence-log? reconnect-chan <on-reconnect *op-id *tube-client
+                 *logged-in? *subject-id *credential *msg-record-name->handler
+                 *shutdown? *op-id->op)]
+     (start-connect-loop* client)
      (start-retry-loop* client)
      (start-rcv-loop* client)
      (start-send-loop* client)
