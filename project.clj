@@ -78,7 +78,7 @@
                           [source-map-support "0.5.0"]]}
 
   :dependencies
-  [[bidi "2.1.2" :exclusions [prismatic/schema ring/ring-core]]
+  [[bidi "2.1.3" :exclusions [prismatic/schema ring/ring-core]]
    [binaryage/oops "0.5.8"]
    [com.fzakaria/slf4j-timbre "0.3.8"]
    [com.taoensso/timbre "4.10.0"]
@@ -88,7 +88,7 @@
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.3"]
-   [deercreeklabs/tube "0.1.23" :exclusions [org.slf4j/slf4j-api]]
+   [deercreeklabs/tube "0.1.24" :exclusions [org.slf4j/slf4j-api]]
    [org.clojure/clojure "1.9.0"]
    [org.clojure/clojurescript "1.9.946"]
    [org.clojure/core.async "0.4.474"]

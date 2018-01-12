@@ -11,23 +11,24 @@
    [schema.core :as s]
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
-(def initial-conn-wait-ms 500)
+(def conn-wait-ms-multiplier 1.5)
+(def initial-conn-wait-ms 1000)
 (def max-conn-wait-ms 30000)
 
 ;; TODO: Measure timings and set these appropriately
 (def default-client-options
   {:default-op-timeout-ms 10000
+   :max-login-attempts 5
    :max-op-timeout-ms 10000
    :max-ops-per-second 10
-   :op-burst-seconds 3
    :max-total-op-time-ms 10000
+   :op-burst-seconds 3
    :silence-log? false
-   :max-login-attempts 5
+   :<get-reconnect-credentials #(ca/go
+                                  {:subject-id "" :credential ""})
    :<on-reconnect (fn [capsule-client]
                     (ca/go
-                      nil))
-   :<get-reconnect-credentials #(ca/go
-                                  {:subject-id "" :credential ""})})
+                      nil))})
 
 (defn get-op-id* [*op-id]
   (swap! *op-id (fn [op-id]
@@ -180,7 +181,9 @@
               (do
                 (when-not silence-log?
                   (infof "Reconnect login succeeded."))
-                (reset! *logged-in? true))
+                (reset! *logged-in? true)
+                (reset! *subject-id subject-id)
+                (reset! *credential credential))
               (when-not silence-log?
                 (infof "Login failed: %s" reason)))
             was-successful)))))
@@ -229,20 +232,24 @@
       (loop [wait-ms initial-conn-wait-ms]
         (when-not @*shutdown?
           (debugf "Top of <connect* loop. wait-ms: %s" wait-ms)
-          (let [uri-ch (<get-uri)
+          (let [new-wait-ms (min (* wait-ms conn-wait-ms-multiplier)
+                                 max-conn-wait-ms)
+                uri-ch (<get-uri)
                 [uri ch] (au/alts? [uri-ch (ca/timeout wait-ms)])]
             (if (not= uri-ch ch)
               (do
                 (debugf "Timed out waiting for <get-uri.")
-                (recur (min (* 2 wait-ms) max-conn-wait-ms)))
+                (recur new-wait-ms))
               (do
                 (if (not (string? uri))
                   (do
                     (errorf "<get-uri did not return a string, returned: %s"
                             uri)
                     (ca/<! (ca/timeout wait-ms))
-                    (recur (min (* 2 wait-ms) max-conn-wait-ms)))
-                  (let [rcv-chan (ca/chan 1000)
+                    (recur new-wait-ms))
+                  (let [_ (debugf (str "Got F1 uri: %s. Attempting "
+                                       "websocket connection.") uri)
+                        rcv-chan (ca/chan 1000)
                         opts {:on-disconnect
                               (fn [conn code reason]
                                 (when-not silence-log?
@@ -263,7 +270,7 @@
                       (do
                         (debugf "make-tube-client failed.")
                         (ca/<! (ca/timeout wait-ms))
-                        (recur (min (* 2 wait-ms) max-conn-wait-ms)))
+                        (recur new-wait-ms))
                       (do
                         (debugf "make-tube-client succeeded.")
                         (if-not (au/<? (<do-schema-negotiation* this tube-client
@@ -271,7 +278,7 @@
                           (do
                             (tc/close tube-client)
                             (ca/<! (ca/timeout wait-ms))
-                            (recur (min (* 2 wait-ms) max-conn-wait-ms)))
+                            (recur new-wait-ms))
                           (if @*shutdown?
                             (do
                               (tc/close tube-client)
@@ -534,10 +541,15 @@
     <get-uri :- u/GetURIFn
     opts :- u/ClientOptions]
    (let [opts (merge default-client-options opts)
-         {:keys [max-ops-per-second max-op-timeout-ms op-burst-seconds
-                 default-op-timeout-ms max-total-op-time-ms
-                 <get-reconnect-credentials max-login-attempts
-                 silence-log? <on-reconnect]} opts
+         {:keys [default-op-timeout-ms
+                 max-login-attempts
+                 max-op-timeout-ms
+                 max-ops-per-second
+                 max-total-op-time-ms
+                 op-burst-seconds
+                 silence-log?
+                 <get-reconnect-credentials
+                 <on-reconnect]} opts
          rpc-name-kws (into #{} (keys (:rpcs api)))
          event-name-kws (into #{} (keys (:events api)))
          op-chan (ca/chan (ceil (* max-ops-per-second op-burst-seconds

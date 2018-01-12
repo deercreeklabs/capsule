@@ -50,15 +50,15 @@
    (s/optional-key :<authenticator) Authenticator})
 (def Callback (s/=> s/Any s/Any))
 (def ClientOptions
-  {(s/optional-key :connect-timeout-ms) s/Int
-   (s/optional-key :default-rpc-timeout-ms) s/Int
-   (s/optional-key :max-reconnect-wait-ms) s/Int
-   (s/optional-key :max-rpc-timeout-ms) s/Int
+  {(s/optional-key :default-op-timeout-ms) s/Int
+   (s/optional-key :max-login-attempts) s/Int
+   (s/optional-key :max-op-timeout-ms) s/Int
    (s/optional-key :max-ops-per-second) s/Int
+   (s/optional-key :max-total-op-time-ms) s/Int
    (s/optional-key :op-burst-seconds) s/Int
-   (s/optional-key :max-total-rpc-time-ms) s/Int
-   (s/optional-key :on-reconnect-login-failure) Callback
-   (s/optional-key :silence-log?) s/Bool})
+   (s/optional-key :silence-log?) s/Bool
+   (s/optional-key :<get-reconnect-credentials) Callback
+   (s/optional-key :<on-reconnect) Callback})
 
 (def OpInfo
   {:req-name s/Keyword
