@@ -23,11 +23,13 @@
    :max-ops-per-second 10
    :max-total-op-time-ms 10000
    :op-burst-seconds 3
+   :rate-limit? true
    :silence-log? false
    :<get-reconnect-credentials #(ca/go
                                   {:subject-id "" :credential ""})
    :<on-reconnect (fn [capsule-client]
                     (ca/go
+                      (infof "Client reconnected.")
                       nil))})
 
 (defn get-op-id* [*op-id]
@@ -78,9 +80,10 @@
      client-fp client-pcf *server-fp *server-pcf rpc-name-kws
      event-name-kws op-chan max-op-timeout-ms default-op-timeout-ms
      max-total-op-time-ms max-ops-per-second op-burst-seconds
-     silence-log? reconnect-chan <on-reconnect *op-id *tube-client
-     *logged-in? *subject-id *credential *msg-record-name->handler
-     *shutdown? *op-id->op]
+     rate-limit? silence-log? reconnect-chan <on-reconnect
+     *op-id *tube-client *logged-in? *subject-id *credential
+     *msg-record-name->handler *shutdown? *op-id->op]
+
   ICapsuleClient
   (<send-rpc [this rpc-name-kw arg]
     (<send-rpc this rpc-name-kw arg default-op-timeout-ms))
@@ -473,18 +476,20 @@
     (let [buf-size (* max-ops-per-second op-burst-seconds)
           credit-ch (ca/chan (ca/dropping-buffer buf-size))
           credit-ch-delay-ms (/ 1000 max-ops-per-second)]
-      (dotimes [i buf-size] ;; Preload credits
+      (when rate-limit?
+        (dotimes [i buf-size] ;; Preload credits
         (ca/put! credit-ch :one-credit))
-      (ca/go
-        (while (not @*shutdown?)
-          (ca/>! credit-ch :one-credit)
-          (ca/<! (ca/timeout credit-ch-delay-ms))))
+        (ca/go
+          (while (not @*shutdown?)
+            (ca/>! credit-ch :one-credit)
+            (ca/<! (ca/timeout credit-ch-delay-ms)))))
       (ca/go
         (try
           (while (not @*shutdown?)
             (let [[op ch] (ca/alts! [op-chan (ca/timeout 100)])]
               (when (= op-chan ch)
-                (ca/<! credit-ch) ;; Consume a credit
+                (when rate-limit?
+                  (ca/<! credit-ch)) ;; Consume a credit
                 (au/<? (<send-op* this op)))))
           (catch #?(:clj Exception :cljs js/Error) e
             (errorf "Unexpected error in send loop: %s"
@@ -547,6 +552,7 @@
                  max-ops-per-second
                  max-total-op-time-ms
                  op-burst-seconds
+                 rate-limit?
                  silence-log?
                  <get-reconnect-credentials
                  <on-reconnect]} opts
@@ -579,9 +585,9 @@
                  client-fp client-pcf *server-fp *server-pcf rpc-name-kws
                  event-name-kws op-chan max-op-timeout-ms default-op-timeout-ms
                  max-total-op-time-ms max-ops-per-second op-burst-seconds
-                 silence-log? reconnect-chan <on-reconnect *op-id *tube-client
-                 *logged-in? *subject-id *credential *msg-record-name->handler
-                 *shutdown? *op-id->op)]
+                 rate-limit? silence-log? reconnect-chan <on-reconnect
+                 *op-id *tube-client *logged-in? *subject-id *credential
+                 *msg-record-name->handler *shutdown? *op-id->op)]
      (start-connect-loop* client)
      (start-retry-loop* client)
      (start-rcv-loop* client)
