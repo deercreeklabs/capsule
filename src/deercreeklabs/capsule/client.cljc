@@ -234,9 +234,11 @@
       (debugf "Entering <connect*")
       (loop [wait-ms initial-conn-wait-ms]
         (when-not @*shutdown?
-          (debugf "Top of <connect* loop. wait-ms: %s" wait-ms)
-          (let [new-wait-ms (min (* wait-ms conn-wait-ms-multiplier)
-                                 max-conn-wait-ms)
+          (debugf "Top of <connect* loop. wait-ms: %.0f" (float wait-ms))
+          (let [rand-mult (+ 0.5 (rand))
+                new-wait-ms (-> (* wait-ms conn-wait-ms-multiplier)
+                                (min max-conn-wait-ms)
+                                (* rand-mult))
                 uri-ch (<get-uri)
                 [uri ch] (au/alts? [uri-ch (ca/timeout wait-ms)])]
             (if (not= uri-ch ch)
