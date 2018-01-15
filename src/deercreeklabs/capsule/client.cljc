@@ -68,6 +68,7 @@
   (handle-logout-rsp* [this msg])
   (<do-login* [this tube-client rcv-chan subject-id credential])
   (<attempt-reauth* [this tube-client rcv-chan])
+  (<get-uri* [this wait-ms])
   (<connect* [this])
   (start-connect-loop* [this])
   (start-retry-loop* [this])
@@ -229,6 +230,18 @@
                                  subject-id
                                  credential)))))))))))))
 
+  (<get-uri* [this wait-ms]
+    (au/go
+      (try
+        (let [uri-ch (<get-uri)
+              [uri ch] (au/alts? [uri-ch (ca/timeout wait-ms)])]
+          (if (= uri-ch ch)
+            uri
+            false))
+        (catch #?(:clj Exception :cljs js/Error) e
+          (debugf "Error in <get-uri: %s" (lu/get-exception-msg e))
+          false))))
+
   (<connect* [this]
     (au/go
       (debugf "Entering <connect*")
@@ -238,14 +251,12 @@
           (let [rand-mult (+ 0.5 (rand))
                 new-wait-ms (-> (* wait-ms conn-wait-ms-multiplier)
                                 (min max-conn-wait-ms)
-                                (* rand-mult))
-                uri-ch (<get-uri)
-                [uri ch] (au/alts? [uri-ch (ca/timeout wait-ms)])]
-            (if (not= uri-ch ch)
-              (do
-                (debugf "Timed out waiting for <get-uri.")
-                (recur new-wait-ms))
-              (do
+                                (* rand-mult))]
+            (let [uri (au/<? (<get-uri* this wait-ms))]
+              (if (not uri)
+                (do
+                  (ca/<! (ca/timeout wait-ms))
+                  (recur new-wait-ms))
                 (if (not (string? uri))
                   (do
                     (errorf "<get-uri did not return a string, returned: %s"
@@ -480,7 +491,7 @@
           credit-ch-delay-ms (/ 1000 max-ops-per-second)]
       (when rate-limit?
         (dotimes [i buf-size] ;; Preload credits
-        (ca/put! credit-ch :one-credit))
+          (ca/put! credit-ch :one-credit))
         (ca/go
           (while (not @*shutdown?)
             (ca/>! credit-ch :one-credit)
