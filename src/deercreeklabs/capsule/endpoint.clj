@@ -31,8 +31,8 @@
   (get-subject-conn-count [this subject-id])
   (on-connect [this tube-conn])
   (on-rcv [this tube-conn data])
-  (<handle-login-req [this conn-info msg])
-  (<handle-logout-req [this conn-info msg])
+  (<handle-login-req [this conn-info msg encoded-msg msg-union-schema])
+  (<handle-logout-req [this conn-info msg encoded-msg msg-union-schema])
   (<do-schema-negotiation [this tube-conn data])
   (get-decoder [this client-fp client-pcf])
   (send-event-to-all-conns [this event-name event])
@@ -82,7 +82,7 @@
                 (throw (ex-info (str "No handler is defined for " msg-name)
                                 (u/sym-map msg-name msg <handler data)))))
             (try
-              (au/<? (<handler this conn-info msg))
+              (au/<? (<handler this conn-info msg data msg-union-schema))
               (catch Exception e
                 (errorf "Error in handler for %s.%s" msg-name
                         (lu/get-exception-msg-and-stacktrace e))))))
@@ -123,7 +123,7 @@
               (swap! *decoders assoc k decoder)
               decoder)))))
 
-  (<handle-login-req [this conn-info msg]
+  (<handle-login-req [this conn-info msg encoded-msg msg-union-schema]
     (au/go
       (let [tube-conn (.tube-conn ^ConnInfo conn-info)
             conn-id (tc/get-conn-id tube-conn)
@@ -146,7 +146,7 @@
                          #{conn-id}))))))
         (send-msg-by-schema this tube-conn u/login-rsp-schema rsp))))
 
-  (<handle-logout-req [this conn-info msg]
+  (<handle-logout-req [this conn-info msg encoded-msg msg-union-schema]
     (au/go
       (let [tube-conn (.tube-conn ^ConnInfo conn-info)
             conn-id (tc/get-conn-id tube-conn)
@@ -226,7 +226,7 @@
 
 (defn make-rpc-handler [rpc-name rsp-name rpc->roles <handler]
   (let [rpc-roles (rpc->roles rpc-name)]
-    (fn [endpoint ^ConnInfo conn-info msg]
+    (fn [endpoint ^ConnInfo conn-info msg encoded-msg msg-union-schema]
       (ca/go
         (let [{:keys [op-id arg]} msg
               tube-conn (.tube-conn conn-info)]
@@ -234,7 +234,8 @@
             (let [roles (or (.roles conn-info) #{:public})]
               (if (permitted? roles rpc-roles)
                 (let [subject-id (.subject-id conn-info)
-                      metadata (u/sym-map op-id roles subject-id)
+                      metadata (u/sym-map op-id roles subject-id encoded-msg
+                                          msg-union-schema)
                       handler-ch (<handler arg metadata)
                       _ (when-not (au/channel? handler-ch)
                           (throw

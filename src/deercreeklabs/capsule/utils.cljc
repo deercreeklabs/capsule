@@ -30,7 +30,9 @@
 (def RPCMetadata
   {:subject-id SubjectId
    :roles #{Role}
-   :op-id OpId})
+   :op-id OpId
+   :encoded-msg ba/ByteArray
+   :msg-union-schema AvroSchema})
 (def Handler (s/=> s/Any s/Any RPCMetadata))
 (def Identifier s/Str)
 (def Credential s/Str)
