@@ -73,19 +73,18 @@
   (on-rcv [this tube-conn data]
     (let [conn-id (tc/get-conn-id tube-conn)]
       (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
-        (ca/go
-          (let [decoder (.decoder conn-info)
-                [msg-name msg] (decoder data)
-                <handler (msg-record-name->handler msg-name)]
-            (when (not <handler)
-              (let [data (ba/byte-array->debug-str data)]
-                (throw (ex-info (str "No handler is defined for " msg-name)
-                                (u/sym-map msg-name msg <handler data)))))
-            (try
-              (au/<? (<handler this conn-info msg data msg-union-schema))
-              (catch Exception e
-                (errorf "Error in handler for %s.%s" msg-name
-                        (lu/get-exception-msg-and-stacktrace e))))))
+        (let [decoder (.decoder conn-info)
+              [msg-name msg] (decoder data)
+              handler (msg-record-name->handler msg-name)]
+          (when (not handler)
+            (let [data (ba/byte-array->debug-str data)]
+              (throw (ex-info (str "No handler is defined for " msg-name)
+                              (u/sym-map msg-name msg handler data)))))
+          (try
+            (handler this conn-info msg data msg-union-schema)
+            (catch Exception e
+              (errorf "Error in handler for %s.%s" msg-name
+                      (lu/get-exception-msg-and-stacktrace e)))))
         (<do-schema-negotiation this tube-conn data))))
 
   (<do-schema-negotiation [this tube-conn data]
@@ -224,44 +223,56 @@
 (defn permitted? [subject-roles rpc-roles]
   (pos? (count (clojure.set/intersection subject-roles rpc-roles))))
 
-(defn make-rpc-handler [rpc-name rsp-name rpc->roles <handler]
+(defn make-rpc-handler [rpc-name rsp-name rpc->roles handler]
   (let [rpc-roles (rpc->roles rpc-name)]
     (fn [endpoint ^ConnInfo conn-info msg encoded-msg msg-union-schema]
-      (ca/go
-        (let [{:keys [op-id arg]} msg
-              tube-conn (.tube-conn conn-info)]
-          (try
-            (let [roles (or (.roles conn-info) #{:public})]
-              (if (permitted? roles rpc-roles)
-                (let [subject-id (.subject-id conn-info)
-                      metadata (u/sym-map op-id roles subject-id encoded-msg
-                                          msg-union-schema)
-                      handler-ch (<handler arg metadata)
-                      _ (when-not (au/channel? handler-ch)
-                          (throw
-                           (ex-info (str "Handler for `" rpc-name
-                                         "` did not return a channel.")
-                                    (u/sym-map handler-ch rpc-name))))
-                      ret (au/<? handler-ch)
-                      rsp (u/sym-map op-id ret)]
-                  (send-msg-by-name endpoint tube-conn rsp-name rsp))
-                (let [rsp {:op-id op-id
-                           :rpc-name (name rpc-name)
-                           :rpc-arg "...elided..."
-                           :failure-type :unauthorized
-                           :error-str "Unauthorized RPC."}]
-                  (send-msg-by-schema endpoint tube-conn
-                                      u/rpc-failure-rsp-schema rsp))))
-            (catch Exception e
-              (let [arg-str (str arg)
-                    rsp {:op-id op-id
+      (let [{:keys [op-id arg]} msg
+            tube-conn (.tube-conn conn-info)]
+        (try
+          (let [roles (or (.roles conn-info) #{:public})]
+            (if (permitted? roles rpc-roles)
+              (let [subject-id (.subject-id conn-info)
+                    metadata (u/sym-map op-id roles subject-id encoded-msg
+                                        msg-union-schema)
+                    handler-ret (handler arg metadata)
+                    send-ret (fn [ret]
+                               (let [rsp (u/sym-map op-id ret)]
+                                 (send-msg-by-name endpoint tube-conn
+                                                   rsp-name rsp)))]
+                (if-not (au/channel? handler-ret)
+                  (send-ret handler-ret)
+                  (ca/go
+                    (try
+                      (send-ret (au/<? handler-ret))
+                      (catch Exception e
+                        (let [arg-str (str arg)
+                              rsp {:op-id op-id
+                                   :rpc-name (name rpc-name)
+                                   :rpc-arg (subs arg-str 0
+                                                  (min (count arg-str) 500))
+                                   :failure-type :server-exception
+                                   :error-str (lu/get-exception-msg e)}]
+                          (lu/log-exception e)
+                          (send-msg-by-schema endpoint tube-conn
+                                              u/rpc-failure-rsp-schema
+                                              rsp)))))))
+              (let [rsp {:op-id op-id
                          :rpc-name (name rpc-name)
-                         :rpc-arg (subs arg-str 0 (min (count arg-str) 500))
-                         :failure-type :server-exception
-                         :error-str (lu/get-exception-msg e)}]
-                (lu/log-exception e)
+                         :rpc-arg "...elided..."
+                         :failure-type :unauthorized
+                         :error-str "Unauthorized RPC."}]
                 (send-msg-by-schema endpoint tube-conn
-                                    u/rpc-failure-rsp-schema rsp)))))))))
+                                    u/rpc-failure-rsp-schema rsp))))
+          (catch Exception e
+            (let [arg-str (str arg)
+                  rsp {:op-id op-id
+                       :rpc-name (name rpc-name)
+                       :rpc-arg (subs arg-str 0 (min (count arg-str) 500))
+                       :failure-type :server-exception
+                       :error-str (lu/get-exception-msg e)}]
+              (lu/log-exception e)
+              (send-msg-by-schema endpoint tube-conn
+                                  u/rpc-failure-rsp-schema rsp))))))))
 
 (defn make-msg-record-name->handler [roles-to-rpcs handlers]
   (let [base {::u/login-req <handle-login-req

@@ -11,14 +11,13 @@
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
 (defn handle-calculate [arg metadata]
-  (au/go
-    (let [{:keys [nums operator]} arg
-          op (case operator
-               :add +
-               :subtract -
-               :multiply *
-               :divide /)]
-      (apply op nums))))
+  (let [{:keys [nums operator]} arg
+        op (case operator
+             :add +
+             :subtract -
+             :multiply *
+             :divide /)]
+    (apply op nums)))
 
 (defn make-handle-request-event [*endpoint]
   (fn <handle-request-event [event-name-str metadata]
