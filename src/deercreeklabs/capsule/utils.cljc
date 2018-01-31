@@ -18,7 +18,7 @@
 #?(:cljs (def Long js/Long))
 
 (def Nil (s/eq nil))
-(def AvroSchema (s/protocol deercreeklabs.lancaster.schemas/IAvroSchema))
+(def AvroSchema (s/protocol deercreeklabs.lancaster.utils/IAvroSchema))
 (def RpcName s/Keyword)
 (def RpcOrEventName s/Keyword)
 (def Role s/Keyword)
@@ -233,10 +233,10 @@
       (when-not ret
         (throw (ex-info "RPC def must include a :ret key"
                         (sym-map rpc-name rpc-def))))
-      (when-not (satisfies? deercreeklabs.lancaster.schemas/IAvroSchema arg)
+      (when-not (satisfies? deercreeklabs.lancaster.utils/IAvroSchema arg)
         (throw (ex-info "RPC :arg value must be an AvroSchema object"
                         (sym-map rpc-name rpc-def arg))))
-      (when-not (satisfies? deercreeklabs.lancaster.schemas/IAvroSchema ret)
+      (when-not (satisfies? deercreeklabs.lancaster.utils/IAvroSchema ret)
         (throw (ex-info "RPC :ret value must be an AvroSchema object"
                         (sym-map rpc-name rpc-def ret)))))))
 
@@ -248,7 +248,7 @@
     (when-not (keyword? event-name)
       (throw (ex-info "Event name must be a keyword"
                       (sym-map event-name events))))
-    (when-not (satisfies? deercreeklabs.lancaster.schemas/IAvroSchema
+    (when-not (satisfies? deercreeklabs.lancaster.utils/IAvroSchema
                           event-schema)
       (throw (ex-info "Event schema must be an AvroSchema object"
                       (sym-map event-name event-schema events))))))
