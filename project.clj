@@ -48,7 +48,7 @@
                  :deploy-via :clojars}
 
   ;; For testing
-  :main deercreeklabs.capsule.calc
+  :main deercreeklabs.capsule.test-gateway
 
   :pedantic? :abort
 
