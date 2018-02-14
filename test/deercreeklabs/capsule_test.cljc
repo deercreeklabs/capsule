@@ -31,7 +31,7 @@
 
 (def rpc-timeout #?(:cljs 10000 :clj 1000))
 (def test-timeout #?(:cljs 20000 :clj 2000))
-(def client-proto calc-protocols/client-gateway-protocol)
+(def cg-proto calc-protocols/client-gateway-protocol)
 
 (defn slice-str [s len]
   (when s
@@ -49,9 +49,21 @@
                                           (ca/put! set-greeting-ch msg))}
          client (cc/make-client (make-<get-gw-url "client")
                                 (make-<get-credentials "client1" "test")
-                                client-proto :client client-handlers
+                                cg-proto :client client-handlers
                                 {:silence-log? true})]
      [client backend])))
+
+(deftest test-make-name-maps
+  (let [maps (u/make-name-maps cg-proto :client)
+        expected {:rpc-name->req-name {:add :add-rpc-req
+                                       :subtract :subtract-rpc-req}
+                  :rpc-name->rsp-name {:add :add-rpc-success-rsp
+                                       :subtract :subtract-rpc-success-rsp}
+                  :msg-name->rec-name
+                  {:request-greeting-update :request-greeting-update-msg
+                   :request-conn-count :request-conn-count-msg
+                   :ping :ping-msg}}]
+    (is (= expected maps))))
 
 (deftest test-protocols
   (is (u/valid-protocol? calc-protocols/client-gateway-protocol))
@@ -86,11 +98,11 @@
                                              (ca/put! client2-ch msg))}
            client1 (cc/make-client (make-<get-gw-url "client")
                                    (make-<get-credentials "client1" "test")
-                                   client-proto :client client1-handlers
+                                   cg-proto :client client1-handlers
                                    {:silence-log? true})
            client2 (cc/make-client (make-<get-gw-url "client")
                                    (make-<get-credentials "client2" "test")
-                                   client-proto :client client2-handlers
+                                   cg-proto :client client2-handlers
                                    {:silence-log? true})
            expected-msg "Hello"]
        (try
@@ -124,15 +136,15 @@
                                (ca/put! client1-conn-count-chan msg))}
            client0 (cc/make-client (make-<get-gw-url "client")
                                    (make-<get-credentials "client0" "test")
-                                   client-proto :client client0-handlers
+                                   cg-proto :client client0-handlers
                                    {:silence-log? true})
            client1a (cc/make-client (make-<get-gw-url "client")
                                     (make-<get-credentials "client1" "test")
-                                    client-proto :client client1-handlers
+                                    cg-proto :client client1-handlers
                                     {:silence-log? true})
            client1b (cc/make-client (make-<get-gw-url "client")
                                     (make-<get-credentials "client1" "test")
-                                    client-proto :client client1-handlers
+                                    cg-proto :client client1-handlers
                                     {:silence-log? true})]
        (try
          (cc/send-msg client1a :request-conn-count nil)
@@ -153,7 +165,7 @@
    (ca/go
      (let [client (cc/make-client (make-<get-gw-url "client")
                                   (make-<get-credentials "client0" "test")
-                                  client-proto :client {}
+                                  cg-proto :client {}
                                   {:silence-log? true})]
        (try
          (au/alts? [(cc/<send-rpc client :non-existent "arg")
@@ -171,7 +183,7 @@
    (ca/go
      (let [client (cc/make-client (make-<get-gw-url "client")
                                   (make-<get-credentials "client0" "test")
-                                  client-proto :client {}
+                                  cg-proto :client {}
                                   {:silence-log? true})]
        (try
          (au/alts? [(cc/send-msg client :non-existent "yo")
@@ -189,7 +201,7 @@
    (ca/go
      (let [client (cc/make-client (make-<get-gw-url "client")
                                   (make-<get-credentials "client0" "test")
-                                  client-proto :client {}
+                                  cg-proto :client {}
                                   {:silence-log? true})]
        (try
          (cc/set-rpc-handler client :non-existent (constantly nil))
@@ -200,13 +212,34 @@
          (finally
            (cc/shutdown client)))))))
 
+(deftest test-set-msg-handler
+  (au/test-async
+   test-timeout
+   (ca/go
+     (let [client (cc/make-client (make-<get-gw-url "client")
+                                  (make-<get-credentials "client0" "test")
+                                  cg-proto :client {}
+                                  {:silence-log? true})
+           client-chan (ca/chan)
+           handler (fn [msg metadata]
+                     (when (nil? msg)
+                       (ca/put! client-chan :nil)))]
+       (try
+         (cc/set-msg-handler client :pong handler)
+         (cc/send-msg client :ping nil)
+         (let [[v ch] (au/alts? [client-chan (ca/timeout rpc-timeout)])]
+             (is (= client-chan ch))
+             (is (= :nil v)))
+         (finally
+           (cc/shutdown client)))))))
+
 (deftest test-set-handler-for-non-existent-msg
   (au/test-async
    test-timeout
    (ca/go
      (let [client (cc/make-client (make-<get-gw-url "client")
                                   (make-<get-credentials "client0" "test")
-                                  client-proto :client {}
+                                  cg-proto :client {}
                                   {:silence-log? true})]
        (try
          (cc/set-msg-handler client :non-existent (constantly nil))

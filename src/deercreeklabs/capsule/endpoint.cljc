@@ -10,8 +10,8 @@
    [schema.core :as s]
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
-#(:clj
-  (primitive-math/use-primitive-operators))
+#?(:clj
+   (primitive-math/use-primitive-operators))
 
 (def default-endpoint-options
   {:default-rpc-timeout-ms 10000
@@ -42,13 +42,15 @@
   (set-msg-handler [this msg-name-kw handler])
   (close-conn [this conn-id])
   (close-subject-conns [this subject-id])
+  (shutdown [this])
+  (start-gc-loop* [this])
   (on-disconnect* [this conn-id remote-addr tube-conn code reason]))
 
 (defrecord Endpoint [path authenticator rpc-name->req-name msg-name->rec-name
                      msgs-union-schema default-rpc-timeout-ms role peer-role
                      peer-name-maps *conn-id->conn-info *subject-id->conn-ids
                      *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
-                     *msg-record-name->handler]
+                     *shutdown? *msg-record-name->handler]
 
   IEndpoint
   (get-path [this]
@@ -227,6 +229,9 @@
       (doseq [conn-id conn-ids]
         (close-conn this conn-id))))
 
+  (shutdown [this]
+    (reset! *shutdown? true))
+
   (on-disconnect* [this conn-id remote-addr tube-conn code reason]
     (swap! *conn-count #(dec (int %)))
     (infof (str "Closed conn %s on %s from %s. Endpoint conn count: %s")
@@ -240,7 +245,11 @@
                        new-conn-ids (disj conn-ids conn-id)]
                    (if (pos? (count new-conn-ids))
                      (assoc m subject-id new-conn-ids)
-                     (dissoc m subject-id)))))))))
+                     (dissoc m subject-id))))))))
+
+  (start-gc-loop* [this]
+    (let []
+      (u/start-gc-loop *shutdown? *rpc-id->rpc-info))))
 
 (s/defn make-endpoint :- (s/protocol IEndpoint)
   ([path :- s/Str
@@ -268,12 +277,16 @@
          *fp->pcf (atom {})
          *rpc-id (atom 0)
          *rpc-id->rpc-info (atom {})
+         *shutdown? (atom false)
          *msg-record-name->handler (atom (u/make-msg-rec-name->handler
                                           my-name-maps peer-name-maps
                                           *rpc-id->rpc-info handlers
-                                          silence-log?))]
-     (->Endpoint path authenticator rpc-name->req-name msg-name->rec-name
-                 msgs-union-schema default-rpc-timeout-ms role peer-role
-                 peer-name-maps *conn-id->conn-info *subject-id->conn-ids
-                 *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
-                 *msg-record-name->handler))))
+                                          silence-log?))
+         endpoint (->Endpoint
+                   path authenticator rpc-name->req-name msg-name->rec-name
+                   msgs-union-schema default-rpc-timeout-ms role peer-role
+                   peer-name-maps *conn-id->conn-info *subject-id->conn-ids
+                   *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
+                   *shutdown? *msg-record-name->handler)]
+     (start-gc-loop* endpoint)
+     endpoint)))

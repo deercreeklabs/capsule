@@ -361,20 +361,7 @@
                   (lu/get-exception-msg-and-stacktrace e))))))
 
   (start-gc-loop* [this]
-    (ca/go
-      (try
-        (while (not @*shutdown?)
-          (doseq [[rpc-id rpc-info] @*rpc-id->rpc-info]
-            (when (> (u/get-current-time-ms) (:failure-time-ms rpc-info))
-              (swap! *rpc-id->rpc-info dissoc rpc-id)
-              (when-let [failure-cb (:failure-cb rpc-info)]
-                (failure-cb
-                 (ex-info (str "RPC timed out after " (:timeout-ms rpc-info)
-                               " milliseconds."))))))
-          (ca/<! (ca/timeout 1000)))
-        (catch #?(:clj Exception :cljs js/Error) e
-          (errorf "Unexpected error in gc loop: %s"
-                  (lu/get-exception-msg-and-stacktrace e))))))
+    (u/start-gc-loop *shutdown? *rpc-id->rpc-info))
 
   (start-rcv-loop* [this]
     (ca/go

@@ -13,9 +13,11 @@
                    :subtract {:arg op-arg-schema
                               :ret l/float-schema}}
             :msgs {:request-greeting-update l/null-schema
-                   :request-conn-count l/null-schema}}
+                   :request-conn-count l/null-schema
+                   :ping l/null-schema}}
    :gateway {:msgs {:set-greeting l/string-schema
-                    :subject-conn-count l/int-schema}}})
+                    :subject-conn-count l/int-schema
+                    :pong l/null-schema}}})
 
 (def gateway-backend-protocol
   {:gateway {:rpcs {:add {:arg op-arg-schema

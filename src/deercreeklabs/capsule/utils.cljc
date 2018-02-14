@@ -12,7 +12,7 @@
    [taoensso.timbre :as timbre :refer [debugf errorf infof]])
   #?(:cljs
      (:require-macros
-      deercreeklabs.capsule.utils)))
+      [deercreeklabs.capsule.utils :refer [sym-map]])))
 
 #?(:cljs
    (set! *warn-on-infer* true))
@@ -48,9 +48,6 @@
   {(s/optional-key :rpcs) RpcDefs
    (s/optional-key :msgs) MsgDefs})
 (def Protocol{Role RoleDef})
-(def EndpointOptions
-  {(s/optional-key :path) Path
-   (s/optional-key :<authenticator) Authenticator})
 (def Callback (s/=> s/Any s/Any))
 (def ClientOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
@@ -236,7 +233,7 @@
                         (sym-map rcvr-type msg-name msg handler encoded-msg)))))
     (try
       (handler msg metadata)
-      (catch Exception e
+      (catch #?(:clj Exception :cljs js/Error) e
         (errorf "Error in handler for %s. %s" msg-name
                 (lu/get-exception-msg-and-stacktrace e))))))
 
@@ -275,7 +272,7 @@
           (if-not (au/channel? handler-ret)
             (send-ret handler-ret)
             (ca/take! handler-ret send-ret)))
-        (catch Exception e
+        (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Error in handle-rpc for %s: %s" rpc-name
                   (lu/get-exception-msg-and-stacktrace e))
           (let [error-str (lu/get-exception-msg-and-stacktrace e)]
@@ -314,7 +311,7 @@
                            rpc-name-kw "`.")
                       (sym-map peer-role rpc-name-kw))))
         rsp-name ((:rpc-name->rsp-name peer-name-maps) rpc-name-kw)
-        rpc-handler (make-rpc-req-handler rsp-name handler)]
+        rpc-handler (make-rpc-req-handler rpc-name-kw rsp-name handler)]
     (swap! *msg-rec-name->handler assoc req-name rpc-handler)))
 
 (defn set-msg-handler
@@ -326,10 +323,29 @@
                      "` does not have a msg named `"
                      msg-name-kw "`.")
                 (sym-map peer-role msg-name-kw))))
-    (swap! *msg-rec-name->handler assoc rec-name handler)))
+    (swap! *msg-rec-name->handler assoc rec-name
+           (fn [msg metadata]
+             (handler (:arg msg) metadata)))))
 
 (defn get-peer-role [protocol role]
   (-> (keys protocol)
       (set)
       (disj role)
       (first)))
+
+(defn start-gc-loop [*shutdown? *rpc-id->rpc-info]
+  (ca/go
+    (try
+      (while (not @*shutdown?)
+        (doseq [[rpc-id rpc-info] @*rpc-id->rpc-info]
+          (when (> (get-current-time-ms) (:failure-time-ms rpc-info))
+            (swap! *rpc-id->rpc-info dissoc rpc-id)
+            (when-let [failure-cb (:failure-cb rpc-info)]
+              (failure-cb
+               (ex-info (str "RPC timed out after " (:timeout-ms rpc-info)
+                             " milliseconds.")
+                        rpc-info)))))
+        (ca/<! (ca/timeout 1000)))
+      (catch #?(:clj Exception :cljs js/Error) e
+        (errorf "Unexpected error in gc loop: %s"
+                (lu/get-exception-msg-and-stacktrace e))))))

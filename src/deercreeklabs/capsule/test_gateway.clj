@@ -15,9 +15,8 @@
   (boolean (and (#{"test" "client0" "client1" "client2" "backend"} subject-id)
                 (= "test" credential))))
 
-(defn <handle-client-add [*backend-endpoint arg metadata]
-  (let [be @*backend-endpoint
-        ids (endpoint/get-subject-conn-ids be "backend")
+(defn <handle-client-add [be arg metadata]
+  (let [ids (endpoint/get-subject-conn-ids be "backend")
         conn-id (first ids)]
     (endpoint/<send-rpc be conn-id :add arg)))
 
@@ -38,6 +37,11 @@
     (endpoint/send-msg-to-subject-conns ce subject-id :subject-conn-count
                                         conns)))
 
+(defn handle-client-ping [*client-endpoint msg metadata]
+  (let [ce @*client-endpoint
+        {:keys [conn-id]} metadata]
+    (endpoint/send-msg ce conn-id :pong nil)))
+
 (defn handle-backend-set-greeting [*client-endpoint msg metadata]
   (endpoint/send-msg-to-all-conns @*client-endpoint :set-greeting msg))
 
@@ -47,16 +51,15 @@
         backend-proto calc-protocols/gateway-backend-protocol
         *client-endpoint (atom nil)
         *backend-endpoint (atom nil)
-        client-handlers {:add (partial <handle-client-add
-                                       *backend-endpoint)
-                         :subtract (partial <handle-client-subtract
+        client-handlers {:subtract (partial <handle-client-subtract
                                             *backend-endpoint)
                          :request-greeting-update
                          (partial handle-client-request-greeting-update
                                   *backend-endpoint)
                          :request-conn-count
                          (partial handle-client-request-conn-count
-                                  *client-endpoint)}
+                                  *client-endpoint)
+                         :ping (partial handle-client-ping *client-endpoint)}
         backend-handlers {:set-greeting
                           (partial handle-backend-set-greeting
                                    *client-endpoint)}
@@ -68,6 +71,9 @@
                           backend-handlers)]
     (reset! *client-endpoint client-endpoint)
     (reset! *backend-endpoint backend-endpoint)
+    (endpoint/set-rpc-handler client-endpoint :add
+                              (partial <handle-client-add backend-endpoint)
+)
     (cs/make-server [client-endpoint backend-endpoint])))
 
 (defn -main
