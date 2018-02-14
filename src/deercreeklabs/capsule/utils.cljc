@@ -32,6 +32,7 @@
    (s/required-key :subject-id) SubjectId
    (s/required-key :msg-name) RpcOrMsgName
    (s/required-key :encoded-msg) ba/ByteArray
+   (s/required-key :writer-pcf) s/Str
    (s/required-key :msgs-union-schema) AvroSchema
    (s/optional-key :rpc-id) RpcId
    (s/optional-key :timeout-ms) s/Int})
@@ -225,7 +226,7 @@
    *msg-record-name->handler]
   (let [[msg-name msg] (l/deserialize msgs-union-schema writer-pcf encoded-msg)
         handler (@*msg-record-name->handler msg-name)
-        metadata (sym-map conn-id sender subject-id encoded-msg
+        metadata (sym-map conn-id sender subject-id encoded-msg writer-pcf
                           msgs-union-schema msg-name)]
     (when (not handler)
       (let [data (ba/byte-array->debug-str encoded-msg)]
