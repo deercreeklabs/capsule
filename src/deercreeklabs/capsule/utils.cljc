@@ -55,10 +55,14 @@
    (s/optional-key :rcv-queue-size) s/Int
    (s/optional-key :send-queue-size) s/Int
    (s/optional-key :silence-log?) s/Bool
-   (s/optional-key :<on-reconnect) Callback})
+   (s/optional-key :<on-reconnect) Callback
+   (s/optional-key :rpc-handlers) HandlerMap
+   (s/optional-key :msg-handlers) HandlerMap})
 (def EndpointOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
-   (s/optional-key :silence-log?) s/Bool})
+   (s/optional-key :silence-log?) s/Bool
+   (s/optional-key :rpc-handlers) HandlerMap
+   (s/optional-key :msg-handlers) HandlerMap})
 
 (def RolesToRpcs
   {Role #{RpcOrMsgName}})
@@ -280,27 +284,13 @@
             (sender ::rpc-failure-rsp (sym-map rpc-id error-str))))))))
 
 (defn make-msg-rec-name->handler
-  [my-name-maps peer-name-maps *rpc-id->rpc-info handlers silence-log?]
-  (as-> {::rpc-failure-rsp (make-handle-rpc-failure-rsp
-                            *rpc-id->rpc-info silence-log?)} m
+  [my-name-maps peer-name-maps *rpc-id->rpc-info silence-log?]
+  (let [m {::rpc-failure-rsp (make-handle-rpc-failure-rsp
+                              *rpc-id->rpc-info silence-log?)}]
     (reduce-kv (fn [acc rpc-name rsp-name]
                  (assoc acc rsp-name
                         (make-handle-rpc-success-rsp *rpc-id->rpc-info)))
-               m (:rpc-name->rsp-name my-name-maps))
-    (reduce-kv (fn [acc rpc-name req-name]
-                 (if-let [handler (handlers rpc-name)]
-                   (let [rsp-name ((:rpc-name->rsp-name peer-name-maps)
-                                   rpc-name)]
-                     (assoc acc req-name
-                            (make-rpc-req-handler rpc-name rsp-name handler)))
-                   acc))
-               m (:rpc-name->req-name peer-name-maps))
-    (reduce-kv (fn [acc msg-name rec-name]
-                 (if-let [handler (handlers msg-name)]
-                   (assoc acc rec-name (fn [msg metadata]
-                                         (handler (:arg msg) metadata)))
-                   acc))
-               m (:msg-name->rec-name peer-name-maps))))
+               m (:rpc-name->rsp-name my-name-maps))))
 
 (defn set-rpc-handler
   [rpc-name-kw handler peer-role peer-name-maps *msg-rec-name->handler]

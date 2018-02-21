@@ -17,23 +17,21 @@
 (defn handle-subtract [arg metadata]
   (apply - arg))
 
-(defn handle-request-greeting-update [*client msg metadata]
-  (cc/send-msg @*client :set-greeting greeting))
+(defn handle-request-greeting-update [client msg metadata]
+  (cc/send-msg client :set-greeting greeting))
 
 (defn make-backend
   ([<get-gw-url <get-credentials]
    (make-backend <get-gw-url <get-credentials nil))
   ([<get-gw-url <get-credentials options]
-   (let [*client (atom nil)
-         protocol calc-protocols/gateway-backend-protocol
-         handlers {:add handle-add
-                   :subtract handle-subtract
-                   :request-greeting-update
-                   (partial handle-request-greeting-update *client)}
+   (let [protocol calc-protocols/gateway-backend-protocol
          client (if options
                   (cc/make-client <get-gw-url <get-credentials protocol
-                                  :backend handlers options)
+                                  :backend options)
                   (cc/make-client <get-gw-url <get-credentials protocol
-                                               :backend handlers))]
-     (reset! *client client)
+                                  :backend))]
+     (cc/set-rpc-handler client :add handle-add)
+     (cc/set-rpc-handler client :subtract handle-subtract)
+     (cc/set-msg-handler client :request-greeting-update
+                         (partial handle-request-greeting-update client))
      client)))

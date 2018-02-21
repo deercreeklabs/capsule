@@ -255,17 +255,15 @@
   ([path :- s/Str
     authenticator :- u/Authenticator
     protocol :- u/Protocol
-    role :- u/Role
-    handlers :- u/HandlerMap]
-   (make-endpoint path authenticator protocol role handlers
-                  default-endpoint-options))
+    role :- u/Role]
+   (make-endpoint path authenticator protocol role default-endpoint-options))
   ([path :- s/Str
     authenticator :- u/Authenticator
     protocol :- u/Protocol
     role :- u/Role
-    handlers :- u/HandlerMap
     options :- u/EndpointOptions]
-   (let [{:keys [default-rpc-timeout-ms silence-log?]} options
+   (let [{:keys [default-rpc-timeout-ms
+                 silence-log? rpc-handlers msg-handlers]} options
          msgs-union-schema (u/make-msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
          my-name-maps (u/make-name-maps protocol role)
@@ -280,13 +278,16 @@
          *shutdown? (atom false)
          *msg-record-name->handler (atom (u/make-msg-rec-name->handler
                                           my-name-maps peer-name-maps
-                                          *rpc-id->rpc-info handlers
-                                          silence-log?))
+                                          *rpc-id->rpc-info silence-log?))
          endpoint (->Endpoint
                    path authenticator rpc-name->req-name msg-name->rec-name
                    msgs-union-schema default-rpc-timeout-ms role peer-role
                    peer-name-maps *conn-id->conn-info *subject-id->conn-ids
                    *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
                    *shutdown? *msg-record-name->handler)]
+     (doseq [[rpc-name-kw handler] rpc-handlers]
+       (set-rpc-handler endpoint rpc-name-kw handler))
+     (doseq [[msg-name-kw handler] msg-handlers]
+       (set-msg-handler endpoint msg-name-kw handler))
      (start-gc-loop* endpoint)
      endpoint)))

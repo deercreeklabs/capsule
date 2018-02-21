@@ -397,21 +397,21 @@
   ([<get-url :- u/GetURLFn
     <get-credentials :- u/GetCredentialsFn
     protocol :- u/Protocol
-    role :- u/Role
-    handlers :- u/HandlerMap]
-   (make-client <get-url <get-credentials protocol role handlers {}))
+    role :- u/Role]
+   (make-client <get-url <get-credentials protocol role {}))
   ([<get-url :- u/GetURLFn
     <get-credentials :- u/GetCredentialsFn
     protocol :- u/Protocol
     role :- u/Role
-    handlers :- u/HandlerMap
     opts :- u/ClientOptions]
    (let [opts (merge default-client-options opts)
          {:keys [default-rpc-timeout-ms
                  rcv-queue-size
                  send-queue-size
                  silence-log?
-                 <on-reconnect]} opts
+                 <on-reconnect
+                 rpc-handlers
+                 msg-handlers]} opts
          *rcv-chan (atom nil)
          send-chan (ca/chan send-queue-size)
          reconnect-chan (ca/chan)
@@ -431,7 +431,7 @@
          *rpc-id->rpc-info (atom {})
          *msg-rec-name->handler (atom (u/make-msg-rec-name->handler
                                        my-name-maps peer-name-maps
-                                       *rpc-id->rpc-info handlers silence-log?))
+                                       *rpc-id->rpc-info silence-log?))
          client (->CapsuleClient
                  <get-url <get-credentials *rcv-chan send-chan reconnect-chan
                  rpc-name->req-name msg-name->rec-name
@@ -440,6 +440,10 @@
                  role peer-role peer-name-maps
                  *url->server-fp *server-pcf *rpc-id *tube-client *credentials
                  *shutdown? *rpc-id->rpc-info *msg-rec-name->handler)]
+     (doseq [[rpc-name-kw handler] rpc-handlers]
+       (set-rpc-handler client rpc-name-kw handler))
+     (doseq [[msg-name-kw handler] msg-handlers]
+       (set-msg-handler client msg-name-kw handler))
      (start-connect-loop* client)
      (start-gc-loop* client)
      (start-rcv-loop* client)
