@@ -210,13 +210,16 @@
 
   (<do-schema-negotiation-and-auth* [this tube-client rcv-chan url]
     (au/go
-      (au/<? (<do-schema-negotiation* this tube-client rcv-chan url))
-      (if-let [credentials @*credentials] ;; Try cached creds first
-        (if (au/<? (<do-auth-w-creds* this tube-client rcv-chan
-                                      credentials))
-          true
-          (<get-credentials-and-do-auth* this tube-client rcv-chan))
-        (<get-credentials-and-do-auth* this tube-client rcv-chan))))
+      (if @*shutdown?
+        (tc/close tube-client)
+        (do
+          (au/<? (<do-schema-negotiation* this tube-client rcv-chan url))
+          (if-let [credentials @*credentials] ;; Try cached creds first
+            (if (au/<? (<do-auth-w-creds* this tube-client rcv-chan
+                                          credentials))
+              true
+              (<get-credentials-and-do-auth* this tube-client rcv-chan))
+            (<get-credentials-and-do-auth* this tube-client rcv-chan))))))
 
   (<get-url* [this wait-ms]
     (ca/go
@@ -302,31 +305,34 @@
     (ca/go
       (try
         (loop [retry? false]
-          (let [known-server-fp (@*url->server-fp url)
-                req (cond-> {:client-fp client-fp
-                             :server-fp (or known-server-fp client-fp)}
-                      retry? (assoc :client-pcf client-pcf))
-                _ (tc/send tube-client (l/serialize u/handshake-req-schema req))
-                rsp (l/deserialize u/handshake-rsp-schema
-                                   (l/get-parsing-canonical-form
-                                    u/handshake-rsp-schema)
-                                   (au/<? rcv-chan))
-                {:keys [match server-fp server-pcf]} rsp]
-            (case match
-              :both (do
-                      (swap! *url->server-fp assoc url known-server-fp)
-                      (when-not known-server-fp
-                        (reset! *server-pcf client-pcf))
-                      true)
-              :client (do
-                        (swap! *url->server-fp assoc url server-fp)
-                        (reset! *server-pcf server-pcf)
+          (if @*shutdown?
+            (tc/close tube-client)
+            (let [known-server-fp (@*url->server-fp url)
+                  req (cond-> {:client-fp client-fp
+                               :server-fp (or known-server-fp client-fp)}
+                        retry? (assoc :client-pcf client-pcf))
+                  _ (tc/send tube-client (l/serialize
+                                          u/handshake-req-schema req))
+                  rsp (l/deserialize u/handshake-rsp-schema
+                                     (l/get-parsing-canonical-form
+                                      u/handshake-rsp-schema)
+                                     (au/<? rcv-chan))
+                  {:keys [match server-fp server-pcf]} rsp]
+              (case match
+                :both (do
+                        (swap! *url->server-fp assoc url known-server-fp)
+                        (when-not known-server-fp
+                          (reset! *server-pcf client-pcf))
                         true)
-              :none (do
-                      (when-not (nil? server-fp)
-                        (swap! *url->server-fp assoc url server-fp)
-                        (reset! *server-pcf server-pcf))
-                      (recur true)))))
+                :client (do
+                          (swap! *url->server-fp assoc url server-fp)
+                          (reset! *server-pcf server-pcf)
+                          true)
+                :none (do
+                        (when-not (nil? server-fp)
+                          (swap! *url->server-fp assoc url server-fp)
+                          (reset! *server-pcf server-pcf))
+                        (recur true))))))
         (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Schema negotiation failed: %s"
                   (lu/get-exception-msg-and-stacktrace e))
