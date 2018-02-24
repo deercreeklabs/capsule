@@ -1,5 +1,4 @@
 (ns deercreeklabs.capsule.test-gateway
-  (:gen-class)
   (:require
    [clojure.core.async :as ca]
    [deercreeklabs.async-utils :as au]
