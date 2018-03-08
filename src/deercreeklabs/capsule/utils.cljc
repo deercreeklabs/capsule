@@ -18,7 +18,7 @@
    (set! *warn-on-infer* true))
 
 (def Nil (s/eq nil))
-(def AvroSchema (s/protocol deercreeklabs.lancaster.utils/IAvroSchema))
+(def LancasterSchema (s/pred l/schema?))
 (def RpcOrMsgName s/Keyword)
 (def Role s/Keyword)
 (def Path s/Str)
@@ -33,7 +33,7 @@
    (s/required-key :msg-name) RpcOrMsgName
    (s/required-key :encoded-msg) ba/ByteArray
    (s/required-key :writer-pcf) s/Str
-   (s/required-key :msgs-union-schema) AvroSchema
+   (s/required-key :msgs-union-schema) LancasterSchema
    (s/optional-key :rpc-id) RpcId
    (s/optional-key :timeout-ms) s/Int})
 (def Handler (s/=> s/Any s/Any MsgMetadata))
@@ -42,9 +42,9 @@
 (def TubeConn (s/protocol tc/IConnection))
 (def GetURLFn (s/=> au/Channel))
 (def GetCredentialsFn (s/=> au/Channel))
-(def MsgDefs {RpcOrMsgName AvroSchema})
-(def RpcDefs {RpcOrMsgName {:arg AvroSchema
-                            :ret AvroSchema}})
+(def MsgDefs {RpcOrMsgName LancasterSchema})
+(def RpcDefs {RpcOrMsgName {:arg LancasterSchema
+                            :ret LancasterSchema}})
 (def RoleDef
   {(s/optional-key :rpcs) RpcDefs
    (s/optional-key :msgs) MsgDefs})
@@ -161,7 +161,7 @@
         msg-schemas (map make-msg-schema msgs)]
     (concat rpc-req-schemas rpc-success-rsp-schemas msg-schemas)))
 
-(s/defn make-msgs-union-schema :- AvroSchema
+(s/defn make-msgs-union-schema :- LancasterSchema
   [protocol :- Protocol]
   (let [role-schemas (mapcat (partial make-role-schemas protocol)
                              (keys protocol))]
@@ -198,22 +198,21 @@
         (when-not arg
           (throw (ex-info "RPC definition must include an :arg key."
                           (sym-map rpc-name rpc-def role-name role-def))))
-        (when-not (satisfies? deercreeklabs.lancaster.utils/IAvroSchema arg)
-          (throw (ex-info "RPC :arg value must be an AvroSchema object."
+        (when-not (l/schema? arg)
+          (throw (ex-info "RPC :arg value must be a LancasterSchema object."
                           (sym-map rpc-name rpc-def role-name role-def))))
         (when-not ret
           (throw (ex-info "RPC definition must include a :ret key."
                           (sym-map rpc-name rpc-def role-name role-def))))
-        (when-not (satisfies? deercreeklabs.lancaster.utils/IAvroSchema ret)
-          (throw (ex-info "RPC :ret value must be an AvroSchema object."
+        (when-not (l/schema? ret)
+          (throw (ex-info "RPC :ret value must be a LancasterSchema object."
                           (sym-map rpc-name rpc-def role-name role-def))))))
     (doseq [[msg-name msg-schema] msgs]
       (when-not (keyword? msg-name)
         (throw (ex-info "Msg names must be keywords."
                         (sym-map msg-name msg-schema))))
-      (when-not (satisfies? deercreeklabs.lancaster.utils/IAvroSchema
-                            msg-schema)
-        (throw (ex-info "Msg values must be AvroSchema objects."
+      (when-not (l/schema? msg-schema)
+        (throw (ex-info "Msg values must be LancasterSchema objects."
                         (sym-map msg-name msg-schema role-name role-def)))))))
 
 (defn valid-protocol? [protocol]
