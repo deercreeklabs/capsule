@@ -98,27 +98,6 @@
                      msg-name-kw "`.")
                 (u/sym-map role msg-name-kw arg)))))
 
-  (send-rpc* [this rpc-name-kw arg success-cb failure-cb timeout-ms]
-    (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
-          rpc-id (u/get-rpc-id* *rpc-id)
-          failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
-          rpc-info (u/sym-map rpc-name-kw arg rpc-id success-cb
-                              failure-cb timeout-ms failure-time-ms)
-          msg (u/sym-map rpc-id timeout-ms arg)
-          msg-info (u/sym-map msg-rec-name msg failure-time-ms failure-cb)]
-      (if (ca/offer! send-chan msg-info)
-        (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
-        (when failure-cb
-          (failure-cb (ex-info "RPC cannot be sent. Send queue is full."
-                               {:rpc-info msg-info}))))))
-
-  (send-msg* [this msg-name-kw msg timeout-ms]
-    (let [msg-rec-name (msg-name->rec-name msg-name-kw)
-          msg {:arg msg}
-          failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
-          msg-info (u/sym-map msg-rec-name msg failure-time-ms)]
-      (ca/offer! send-chan msg-info)))
-
   (set-handler [this msg-name-kw handler]
     (cond
       ((:rpc-name->req-name peer-name-maps) msg-name-kw)
@@ -142,6 +121,26 @@
       (reset! *tube-client nil)))
 
   ICapsuleClientInternals
+  (send-rpc* [this rpc-name-kw arg success-cb failure-cb timeout-ms]
+    (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
+          rpc-id (u/get-rpc-id* *rpc-id)
+          failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
+          rpc-info (u/sym-map rpc-name-kw arg rpc-id success-cb
+                              failure-cb timeout-ms failure-time-ms)
+          msg (u/sym-map rpc-id timeout-ms arg)
+          msg-info (u/sym-map msg-rec-name msg failure-time-ms failure-cb)]
+      (if (ca/offer! send-chan msg-info)
+        (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
+        (when failure-cb
+          (failure-cb (ex-info "RPC cannot be sent. Send queue is full."
+                               {:rpc-info msg-info}))))))
+
+  (send-msg* [this msg-name-kw msg timeout-ms]
+    (let [msg-rec-name (msg-name->rec-name msg-name-kw)
+          msg {:arg msg}
+          failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
+          msg-info (u/sym-map msg-rec-name msg failure-time-ms)]
+      (ca/offer! send-chan msg-info)))
   (<do-login* [this tube-client rcv-chan credentials]
     (au/go
       (tc/send tube-client
