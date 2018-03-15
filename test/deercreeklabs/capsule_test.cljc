@@ -45,8 +45,8 @@
          backend (tb/make-backend (make-<get-gw-url "backend")
                                   (make-<get-credentials "backend" "test")
                                   {:silence-log? true})
-         options {:msg-handlers {:set-greeting (fn [msg metadata]
-                                                 (ca/put! set-greeting-ch msg))}
+         options {:handlers {:set-greeting (fn [msg metadata]
+                                             (ca/put! set-greeting-ch msg))}
                   :silence-log? true}
          client (cc/make-client (make-<get-gw-url "client")
                                 (make-<get-credentials "client1" "test")
@@ -66,8 +66,8 @@
     (is (= expected maps))))
 
 (deftest test-protocols
-  (is (u/valid-protocol? calc-protocols/client-gateway-protocol))
-  (is (u/valid-protocol? calc-protocols/gateway-backend-protocol)))
+  (is (nil? (u/check-protocol calc-protocols/client-gateway-protocol)))
+  (is (nil? (u/check-protocol calc-protocols/gateway-backend-protocol))))
 
 (deftest test-calculate
   (au/test-async
@@ -76,7 +76,7 @@
      (let [[client backend] (make-client-and-backend)]
        (try
          (let [arg [1 2 3]
-               rpc-ch (cc/<send-rpc client :add arg)
+               rpc-ch (cc/<send-msg client :add arg)
                [v ch] (au/alts? [rpc-ch (ca/timeout rpc-timeout)])]
            (is (= rpc-ch ch))
            (is (= 6.0 v)))
@@ -92,13 +92,13 @@
            client1-ch (ca/chan)
            client2-ch (ca/chan)
            [client0 backend] (make-client-and-backend client0-ch)
-           client1-opts {:msg-handlers {:set-greeting (fn [msg metadata]
-                                                        (ca/put! client1-ch
-                                                                 msg))}
+           client1-opts {:handlers {:set-greeting (fn [msg metadata]
+                                                    (ca/put! client1-ch
+                                                             msg))}
                          :silence-log? true}
-           client2-opts {:msg-handlers {:set-greeting (fn [msg metadata]
-                                                        (ca/put! client2-ch
-                                                                 msg))}
+           client2-opts {:handlers {:set-greeting (fn [msg metadata]
+                                                    (ca/put! client2-ch
+                                                             msg))}
                          :silence-log? true}
            client1 (cc/make-client (make-<get-gw-url "client")
                                    (make-<get-credentials "client1" "test")
@@ -108,7 +108,7 @@
                                    cg-proto :client client2-opts)
            expected-msg "Hello"]
        (try
-         (cc/send-msg client2 :request-greeting-update nil)
+         (cc/<send-msg client2 :request-greeting-update nil)
          (let [[v ch] (au/alts? [client0-ch (ca/timeout rpc-timeout)])]
            (is (= client0-ch ch))
            (is (= expected-msg v)))
@@ -130,12 +130,12 @@
    (ca/go
      (let [client0-conn-count-chan (ca/chan)
            client1-conn-count-chan (ca/chan)
-           client0-opts {:msg-handlers {:subject-conn-count
+           client0-opts {:handlers {:subject-conn-count
                                         (fn [msg metadata]
                                           (ca/put! client0-conn-count-chan
                                                    msg))}
                          :silence-log? true}
-           client1-opts {:msg-handlers {:subject-conn-count
+           client1-opts {:handlers {:subject-conn-count
                                         (fn [msg metadata]
                                           (ca/put! client1-conn-count-chan
                                                    msg))}
@@ -170,11 +170,11 @@
                                   (make-<get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
-         (au/alts? [(cc/<send-rpc client :non-existent "arg")
+         (au/alts? [(cc/<send-msg client :non-existent "arg")
                     (ca/timeout rpc-timeout)])
          (is (= :did-not-throw :should-not-get-here))
          (catch #?(:clj Exception :cljs js/Error) e
-           (is (re-find #"does not have an RPC named `:non-existent`"
+           (is (re-find #"is not a sender for msg `:non-existent`"
                         (lu/get-exception-msg e))))
          (finally
            (cc/shutdown client)))))))
@@ -191,7 +191,7 @@
                     (ca/timeout rpc-timeout)])
          (is (= :did-not-throw :should-not-get-here))
          (catch #?(:clj Exception :cljs js/Error) e
-           (is (re-find #"does not have a msg named `:non-existent`"
+           (is (re-find #"is not a sender for msg `:non-existent`"
                         (lu/get-exception-msg e))))
          (finally
            (cc/shutdown client)))))))
@@ -204,10 +204,10 @@
                                   (make-<get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
-         (cc/set-rpc-handler client :non-existent (constantly nil))
+         (cc/set-handler client :non-existent (constantly nil))
          (is (= :did-not-throw :should-not-get-here))
          (catch #?(:clj Exception :cljs js/Error) e
-           (is (re-find #"does not have an RPC named `:non-existent`"
+           (is (re-find #"is not a sender for msg `:non-existent`"
                         (lu/get-exception-msg e))))
          (finally
            (cc/shutdown client)))))))
@@ -224,7 +224,7 @@
                      (when (nil? msg)
                        (ca/put! client-chan :nil)))]
        (try
-         (cc/set-msg-handler client :pong handler)
+         (cc/set-handler client :pong handler)
          (cc/send-msg client :ping nil)
          (let [[v ch] (au/alts? [client-chan (ca/timeout rpc-timeout)])]
            (is (= client-chan ch))
@@ -240,10 +240,10 @@
                                   (make-<get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
-         (cc/set-msg-handler client :non-existent (constantly nil))
+         (cc/set-handler client :non-existent (constantly nil))
          (is (= :did-not-throw :should-not-get-here))
          (catch #?(:clj Exception :cljs js/Error) e
-           (is (re-find #"does not have a msg named `:non-existent`"
+           (is (re-find #"is not a sender for msg `:non-existent`"
                         (lu/get-exception-msg e))))
          (finally
            (cc/shutdown client)))))))

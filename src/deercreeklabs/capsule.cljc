@@ -3,6 +3,6 @@
    [deercreeklabs.capsule.utils :as u]
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
-(defn valid-protocol?
+(defn check-protocol
   [protocol]
-  (u/valid-protocol? protocol))
+  (u/check-protocol protocol))

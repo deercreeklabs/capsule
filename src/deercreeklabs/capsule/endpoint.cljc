@@ -27,22 +27,26 @@
   (get-all-conn-ids [this subject-id])
   (on-connect [this tube-conn])
   (on-rcv [this tube-conn data])
-  (do-schema-negotiation [this conn-id tube-conn data])
-  (<handle-login-req [this conn-id sender conn-info data])
-  (<send-rpc
-    [this conn-id rpc-name-kw arg]
-    [this conn-id rpc-name-kw arg timeout-ms])
-  (send-rpc
-    [this conn-id rpc-name-kw arg success-cb failure-cb]
-    [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms])
-  (send-msg [this conn-id msg-name-kw msg])
-  (send-msg-to-subject-conns [this subject-id msg-name-kw msg])
-  (send-msg-to-all-conns [this msg-name-kw msg])
-  (set-rpc-handler [this rpc-name-kw handler])
-  (set-msg-handler [this msg-name-kw handler])
+  (<send-msg
+    [this conn-id msg-name-kw arg]
+    [this conn-id msg-name-kw arg timeout-ms])
+  (send-msg
+    [this conn-id msg-name-kw arg]
+    [this conn-id msg-name-kw arg timeout-ms]
+    [this conn-id msg-name-kw arg success-cb failure-cb]
+    [this conn-id msg-name-kw arg success-cb failure-cb timeout-ms])
+  (send-msg-to-subject-conns [this subject-id msg-name-kw arg])
+  (send-msg-to-all-conns [this msg-name-kw arg])
+  (set-handler [this msg-name-kw handler])
   (close-conn [this conn-id])
   (close-subject-conns [this subject-id])
-  (shutdown [this])
+  (shutdown [this]))
+
+(defprotocol IEndpointInternals
+  (do-schema-negotiation* [this conn-id tube-conn data])
+  (<handle-login-req* [this conn-id sender conn-info data])
+  (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms])
+  (send-msg* [this conn-id msg-name-kw msg timeout-ms])
   (start-gc-loop* [this])
   (on-disconnect* [this conn-id remote-addr tube-conn code reason]))
 
@@ -50,7 +54,7 @@
                      msgs-union-schema default-rpc-timeout-ms role peer-role
                      peer-name-maps *conn-id->conn-info *subject-id->conn-ids
                      *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
-                     *shutdown? *msg-record-name->handler]
+                     *shutdown? *msg-rec-name->handler]
 
   IEndpoint
   (get-path [this]
@@ -89,14 +93,116 @@
           (if-let [subject-id (.subject-id conn-info)]
             (u/handle-rcv :endpoint conn-id sender subject-id data
                           msgs-union-schema (.client-pcf conn-info)
-                          *msg-record-name->handler)
-            (<handle-login-req this conn-id sender conn-info data))
-          (do-schema-negotiation this conn-id tube-conn data)))
+                          *msg-rec-name->handler)
+            (<handle-login-req* this conn-id sender conn-info data))
+          (do-schema-negotiation* this conn-id tube-conn data)))
       (catch #?(:clj Exception :cljs js/Error) e
         (errorf "Error in on-rcv: %s"
                 (lu/get-exception-msg-and-stacktrace e)))))
 
-  (<handle-login-req [this conn-id sender conn-info data]
+  (<send-msg [this conn-id msg-name-kw arg]
+    (<send-msg this conn-id msg-name-kw arg default-rpc-timeout-ms))
+
+  (<send-msg [this conn-id msg-name-kw arg timeout-ms]
+    (let [ch (ca/chan)
+          cb #(ca/put! ch %)]
+      (send-msg this conn-id msg-name-kw arg cb cb timeout-ms)
+      ch))
+
+  (send-msg [this conn-id msg-name-kw arg]
+    (send-msg this conn-id msg-name-kw arg default-rpc-timeout-ms))
+
+  (send-msg [this conn-id msg-name-kw arg timeout-ms]
+    (send-msg this conn-id msg-name-kw arg nil nil timeout-ms))
+
+  (send-msg [this conn-id msg-name-kw arg success-cb failure-cb]
+    (send-msg this conn-id msg-name-kw arg success-cb failure-cb
+              default-rpc-timeout-ms))
+
+  (send-msg [this conn-id msg-name-kw arg success-cb failure-cb timeout-ms]
+    (when @*shutdown?
+      (throw (ex-info "Endpoint is shut down" (u/sym-map path))))
+    (cond
+      (rpc-name->req-name msg-name-kw)
+      (send-rpc* this conn-id msg-name-kw arg success-cb failure-cb timeout-ms)
+
+      (msg-name->rec-name msg-name-kw)
+      (send-msg* this conn-id msg-name-kw arg timeout-ms)
+
+      :else
+      (throw
+       (ex-info (str "Role `" role "` is not a sender for msg `"
+                     msg-name-kw "`.")
+                (u/sym-map role msg-name-kw arg)))))
+
+  (set-handler [this msg-name-kw handler]
+    (cond
+      ((:rpc-name->req-name peer-name-maps) msg-name-kw)
+      (u/set-rpc-handler msg-name-kw handler peer-role peer-name-maps
+                         *msg-rec-name->handler)
+
+      ((:msg-name->rec-name peer-name-maps) msg-name-kw)
+      (u/set-msg-handler msg-name-kw handler peer-role peer-name-maps
+                         *msg-rec-name->handler)
+
+      :else
+      (throw
+       (ex-info (str "Cannot set handler. Peer role `" peer-role
+                     "` is not a sender for msg `" msg-name-kw "`.")
+                (u/sym-map peer-role msg-name-kw)))))
+
+  (send-msg-to-subject-conns [this subject-id msg-name-kw msg]
+    (doseq [conn-id (@*subject-id->conn-ids subject-id)]
+      (send-msg this conn-id msg-name-kw msg)))
+
+  (send-msg-to-all-conns [this msg-name-kw msg]
+    (doseq [[conn-id conn-info] @*conn-id->conn-info]
+      (send-msg this conn-id msg-name-kw msg)))
+
+  (close-conn [this conn-id]
+    (let [conn-info (@*conn-id->conn-info conn-id)
+          tube-conn (.tube-conn ^ConnInfo conn-info)]
+      (tc/close tube-conn)))
+
+  (close-subject-conns [this subject-id]
+    (let [conn-ids (@*subject-id->conn-ids subject-id)]
+      (doseq [conn-id conn-ids]
+        (close-conn this conn-id))))
+
+  (shutdown [this]
+    (reset! *shutdown? true))
+
+  IEndpointInternals
+  (do-schema-negotiation* [this conn-id tube-conn data]
+    (let [req (l/deserialize
+               u/handshake-req-schema
+               (l/get-parsing-canonical-form u/handshake-req-schema)
+               data)
+          actual-server-fp (l/get-fingerprint64 msgs-union-schema)
+          server-pcf (l/get-parsing-canonical-form msgs-union-schema)
+          {:keys [client-fp client-pcf server-fp]} req
+          client-pcf (if client-pcf
+                       (do
+                         (swap! *fp->pcf assoc client-fp client-pcf)
+                         client-pcf)
+                       (@*fp->pcf client-fp))
+          server-match? (#?(:clj = :cljs .equals)
+                         actual-server-fp
+                         server-fp)
+          match (if-not client-pcf
+                  :none
+                  (if server-match?
+                    :both
+                    :client))
+          rsp (cond-> {:match match}
+                (not server-match?) (assoc :server-fp actual-server-fp
+                                           :server-pcf server-pcf))]
+      (tc/send tube-conn (l/serialize u/handshake-rsp-schema rsp))
+      (when client-pcf
+        (let [conn-info (->ConnInfo tube-conn nil client-pcf)]
+          (swap! *conn-id->conn-info assoc conn-id conn-info)))))
+
+  (<handle-login-req* [this conn-id sender conn-info data]
     (ca/go
       (try
         (let [writer-pcf (.client-pcf ^ConnInfo conn-info)
@@ -129,58 +235,10 @@
           (errorf "Error in <handle-login-req: %s"
                   (lu/get-exception-msg-and-stacktrace e))))))
 
-  (do-schema-negotiation [this conn-id tube-conn data]
-    (let [req (l/deserialize
-               u/handshake-req-schema
-               (l/get-parsing-canonical-form u/handshake-req-schema)
-               data)
-          actual-server-fp (l/get-fingerprint64 msgs-union-schema)
-          server-pcf (l/get-parsing-canonical-form msgs-union-schema)
-          {:keys [client-fp client-pcf server-fp]} req
-          client-pcf (if client-pcf
-                       (do
-                         (swap! *fp->pcf assoc client-fp client-pcf)
-                         client-pcf)
-                       (@*fp->pcf client-fp))
-          server-match? (#?(:clj = :cljs .equals)
-                         actual-server-fp
-                         server-fp)
-          match (if-not client-pcf
-                  :none
-                  (if server-match?
-                    :both
-                    :client))
-          rsp (cond-> {:match match}
-                (not server-match?) (assoc :server-fp actual-server-fp
-                                           :server-pcf server-pcf))]
-      (tc/send tube-conn (l/serialize u/handshake-rsp-schema rsp))
-      (when client-pcf
-        (let [conn-info (->ConnInfo tube-conn nil client-pcf)]
-          (swap! *conn-id->conn-info assoc conn-id conn-info)))))
-
-  (<send-rpc [this conn-id rpc-name-kw arg]
-    (<send-rpc this conn-id rpc-name-kw arg default-rpc-timeout-ms))
-
-  (<send-rpc [this conn-id rpc-name-kw arg timeout-ms]
-    (let [ch (ca/chan)
-          cb #(ca/put! ch %)]
-      (send-rpc this conn-id rpc-name-kw arg cb cb timeout-ms)
-      ch))
-
-  (send-rpc [this conn-id rpc-name-kw arg success-cb failure-cb]
-    (send-rpc this conn-id rpc-name-kw arg success-cb failure-cb
-              default-rpc-timeout-ms))
-
-  (send-rpc [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms]
+  (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms]
     (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
-          _ (when-not msg-rec-name
-              (throw
-               (ex-info (str "Protocol violation. Role `" role
-                               "` does not have an RPC named `"
-                               rpc-name-kw "`.")
-                          (u/sym-map role rpc-name-kw arg))))
           rpc-id (u/get-rpc-id* *rpc-id)
-          failure-time-ms (+ (long (u/get-current-time-ms)) (int timeout-ms))
+          failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
           rpc-info (u/sym-map rpc-name-kw arg rpc-id success-cb
                               failure-cb timeout-ms failure-time-ms)
           msg (u/sym-map rpc-id timeout-ms arg)
@@ -190,47 +248,12 @@
       (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
       (tc/send tube-conn (l/serialize msgs-union-schema [msg-rec-name msg]))))
 
-  (send-msg [this conn-id msg-name-kw msg]
+  (send-msg* [this conn-id msg-name-kw msg timeout-ms]
     (let [msg-rec-name (msg-name->rec-name msg-name-kw)
           ^ConnInfo conn-info (@*conn-id->conn-info conn-id)
           tube-conn (.tube-conn conn-info)]
-      (when-not msg-rec-name
-        (throw
-         (ex-info (str "Protocol violation. Role `" role
-                       "` does not have a msg named `"
-                       msg-name-kw "`.")
-                  (u/sym-map role conn-id msg-name-kw msg))))
       (tc/send tube-conn (l/serialize msgs-union-schema
                                       [msg-rec-name {:arg msg}]))))
-
-  (send-msg-to-subject-conns [this subject-id msg-name-kw msg]
-    (doseq [conn-id (@*subject-id->conn-ids subject-id)]
-      (send-msg this conn-id msg-name-kw msg)))
-
-  (send-msg-to-all-conns [this msg-name-kw msg]
-    (doseq [[conn-id conn-info] @*conn-id->conn-info]
-      (send-msg this conn-id msg-name-kw msg)))
-
-  (set-rpc-handler [this rpc-name-kw handler]
-    (u/set-rpc-handler rpc-name-kw handler peer-role peer-name-maps
-                       *msg-record-name->handler))
-
-  (set-msg-handler [this msg-name-kw handler]
-    (u/set-msg-handler msg-name-kw handler peer-role peer-name-maps
-                       *msg-record-name->handler))
-
-  (close-conn [this conn-id]
-    (let [conn-info (@*conn-id->conn-info conn-id)
-          tube-conn (.tube-conn ^ConnInfo conn-info)]
-      (tc/close tube-conn)))
-
-  (close-subject-conns [this subject-id]
-    (let [conn-ids (@*subject-id->conn-ids subject-id)]
-      (doseq [conn-id conn-ids]
-        (close-conn this conn-id))))
-
-  (shutdown [this]
-    (reset! *shutdown? true))
 
   (on-disconnect* [this conn-id remote-addr tube-conn code reason]
     (swap! *conn-count #(dec (int %)))
@@ -262,8 +285,19 @@
     protocol :- u/Protocol
     role :- u/Role
     options :- u/EndpointOptions]
+   (when-not (string? path)
+     (throw (ex-info "`path` parameter must be a string." (u/sym-map path))))
+   (when-not (ifn? authenticator)
+     (throw (ex-info "`authenticator` parameter must be a function."
+                     (u/sym-map authenticator))))
+   (u/check-protocol protocol)
+   (when-not (keyword? role)
+     (throw (ex-info "`role` parameter must be a keyword." (u/sym-map role))))
+   (when-not (map? options)
+     (throw (ex-info "`options` parameter must be a map."
+                     (u/sym-map options))))
    (let [{:keys [default-rpc-timeout-ms
-                 silence-log? rpc-handlers msg-handlers]} options
+                 silence-log? handlers]} options
          msgs-union-schema (u/make-msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
          my-name-maps (u/make-name-maps protocol role)
@@ -276,7 +310,7 @@
          *rpc-id (atom 0)
          *rpc-id->rpc-info (atom {})
          *shutdown? (atom false)
-         *msg-record-name->handler (atom (u/make-msg-rec-name->handler
+         *msg-rec-name->handler (atom (u/make-msg-rec-name->handler
                                           my-name-maps peer-name-maps
                                           *rpc-id->rpc-info silence-log?))
          endpoint (->Endpoint
@@ -284,10 +318,8 @@
                    msgs-union-schema default-rpc-timeout-ms role peer-role
                    peer-name-maps *conn-id->conn-info *subject-id->conn-ids
                    *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
-                   *shutdown? *msg-record-name->handler)]
-     (doseq [[rpc-name-kw handler] rpc-handlers]
-       (set-rpc-handler endpoint rpc-name-kw handler))
-     (doseq [[msg-name-kw handler] msg-handlers]
-       (set-msg-handler endpoint msg-name-kw handler))
+                   *shutdown? *msg-rec-name->handler)]
+     (doseq [[msg-name-kw handler] handlers]
+       (set-handler endpoint msg-name-kw handler))
      (start-gc-loop* endpoint)
      endpoint)))

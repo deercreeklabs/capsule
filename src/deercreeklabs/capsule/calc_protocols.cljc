@@ -8,21 +8,35 @@
   (l/make-array-schema l/float-schema))
 
 (def client-gateway-protocol
-  {:client {:rpcs {:add {:arg op-arg-schema
-                         :ret l/float-schema}
-                   :subtract {:arg op-arg-schema
-                              :ret l/float-schema}}
-            :msgs {:request-greeting-update l/null-schema
-                   :request-conn-count l/null-schema
-                   :ping l/null-schema}}
-   :gateway {:msgs {:set-greeting l/string-schema
-                    :subject-conn-count l/int-schema
-                    :pong l/null-schema}}})
+  {:roles [:client :gateway]
+   :msgs {:add {:arg op-arg-schema
+                :ret l/float-schema
+                :sender :client}
+          :subtract {:arg op-arg-schema
+                     :ret l/float-schema
+                     :sender :client}
+          :request-greeting-update {:arg l/null-schema
+                                    :sender :client}
+          :request-conn-count {:arg l/null-schema
+                               :sender :client}
+          :ping {:arg l/null-schema
+                 :sender :either}
+          :set-greeting {:arg l/string-schema
+                         :sender :gateway}
+          :subject-conn-count {:arg l/int-schema
+                               :sender :gateway}
+          :pong {:arg l/null-schema
+                 :sender :gateway}}})
 
 (def gateway-backend-protocol
-  {:gateway {:rpcs {:add {:arg op-arg-schema
-                          :ret l/float-schema}
-                    :subtract {:arg op-arg-schema
-                               :ret l/float-schema}}
-             :msgs {:request-greeting-update l/null-schema}}
-   :backend {:msgs {:set-greeting l/string-schema}}})
+  {:roles [:gateway :backend]
+   :msgs {:add {:arg op-arg-schema
+                :ret l/float-schema
+                :sender :gateway}
+          :subtract {:arg op-arg-schema
+                     :ret l/float-schema
+                     :sender :gateway}
+          :request-greeting-update {:arg l/null-schema
+                                    :sender :gateway}
+          :set-greeting {:arg l/string-schema
+                         :sender :backend}}})

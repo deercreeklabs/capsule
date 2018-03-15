@@ -26,20 +26,20 @@
                       nil))})
 
 (defprotocol ICapsuleClient
-  (<send-rpc
-    [this rpc-name-kw arg]
-    [this rpc-name-kw arg timeout-ms])
-  (send-rpc
-    [this rpc-name-kw arg success-cb failure-cb]
-    [this rpc-name-kw arg success-cb failure-cb timeout-ms])
-  (send-msg
+  (<send-msg
     [this msg-name-kw arg]
     [this msg-name-kw arg timeout-ms])
-  (set-rpc-handler [this rpc-name-kw handler])
-  (set-msg-handler [this msg-name-kw handler])
+  (send-msg
+    [this msg-name-kw arg]
+    [this msg-name-kw arg timeout-ms]
+    [this msg-name-kw arg success-cb failure-cb]
+    [this msg-name-kw arg success-cb failure-cb timeout-ms])
+  (set-handler [this msg-name-kw handler])
   (shutdown [this]))
 
 (defprotocol ICapsuleClientInternals
+  (send-rpc* [this msg-name-kw arg success-cb failure-cb timeout-ms])
+  (send-msg* [this msg-name-kw msg timeout-ms])
   (<do-login* [this tube-client rcv-chan credentials])
   (<do-auth-w-creds* [this tube-client rcv-chan credentials])
   (<get-credentials* [this])
@@ -63,66 +63,77 @@
      *shutdown? *rpc-id->rpc-info *msg-rec-name->handler]
 
   ICapsuleClient
-  (<send-rpc [this rpc-name-kw arg]
-    (<send-rpc this rpc-name-kw arg default-rpc-timeout-ms))
+  (<send-msg [this msg-name-kw arg]
+    (<send-msg this msg-name-kw arg default-rpc-timeout-ms))
 
-  (<send-rpc [this rpc-name-kw arg timeout-ms]
+  (<send-msg [this msg-name-kw arg timeout-ms]
     (let [ch (ca/chan)
           cb #(ca/put! ch %)]
-      (send-rpc this rpc-name-kw arg cb cb timeout-ms)
+      (send-msg this msg-name-kw arg cb cb timeout-ms)
       ch))
 
-  (send-rpc [this rpc-name-kw arg success-cb failure-cb]
-    (send-rpc this rpc-name-kw arg success-cb failure-cb
+  (send-msg [this msg-name-kw arg]
+    (send-msg this msg-name-kw arg default-rpc-timeout-ms))
+
+  (send-msg [this msg-name-kw arg timeout-ms]
+    (send-msg this msg-name-kw arg nil nil timeout-ms))
+
+  (send-msg [this msg-name-kw arg success-cb failure-cb]
+    (send-msg this msg-name-kw arg success-cb failure-cb
               default-rpc-timeout-ms))
 
-  (send-rpc [this rpc-name-kw arg success-cb failure-cb timeout-ms]
-    (if @*shutdown?
-      (throw (ex-info "Client is shut down" {}))
-      (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
-            _ (when-not msg-rec-name
-                (throw
-                 (ex-info (str "Protocol violation. Role `" role
-                               "` does not have an RPC named `"
-                               rpc-name-kw "`.")
-                          (u/sym-map role rpc-name-kw arg))))
-            rpc-id (u/get-rpc-id* *rpc-id)
-            failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
-            rpc-info (u/sym-map rpc-name-kw arg rpc-id success-cb
-                                failure-cb timeout-ms failure-time-ms)
-            msg (u/sym-map rpc-id timeout-ms arg)
-            msg-info (u/sym-map msg-rec-name msg failure-time-ms failure-cb)]
-        (if (ca/offer! send-chan msg-info)
-          (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
-          (when failure-cb
-            (failure-cb (ex-info "RPC cannot be sent. Send queue is full."
-                                 {:rpc-info msg-info})))))))
+  (send-msg [this msg-name-kw arg success-cb failure-cb timeout-ms]
+    (when @*shutdown?
+      (throw (ex-info "Client is shut down" {})))
+    (cond
+      (rpc-name->req-name msg-name-kw)
+      (send-rpc* this msg-name-kw arg success-cb failure-cb timeout-ms)
 
-  (send-msg [this msg-name-kw msg]
-    (send-msg this msg-name-kw msg default-rpc-timeout-ms))
+      (msg-name->rec-name msg-name-kw)
+      (send-msg* this msg-name-kw arg timeout-ms)
 
-  (send-msg [this msg-name-kw msg timeout-ms]
-    (if @*shutdown?
-      (throw (ex-info "Client is shut down" {}))
-      (let [msg-rec-name (msg-name->rec-name msg-name-kw)
-            _ (when-not msg-rec-name
-                (throw
-                 (ex-info (str "Protocol violation. Role `" role
-                       "` does not have a msg named `"
-                       msg-name-kw "`.")
-                  (u/sym-map role msg-name-kw msg))))
-            msg {:arg msg}
-            failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
-            msg-info (u/sym-map msg-rec-name msg failure-time-ms)]
-        (ca/offer! send-chan msg-info))))
+      :else
+      (throw
+       (ex-info (str "Role `" role "` is not a sender for msg `"
+                     msg-name-kw "`.")
+                (u/sym-map role msg-name-kw arg)))))
 
-  (set-rpc-handler [this rpc-name-kw handler]
-    (u/set-rpc-handler rpc-name-kw handler peer-role peer-name-maps
-                       *msg-rec-name->handler))
+  (send-rpc* [this rpc-name-kw arg success-cb failure-cb timeout-ms]
+    (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
+          rpc-id (u/get-rpc-id* *rpc-id)
+          failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
+          rpc-info (u/sym-map rpc-name-kw arg rpc-id success-cb
+                              failure-cb timeout-ms failure-time-ms)
+          msg (u/sym-map rpc-id timeout-ms arg)
+          msg-info (u/sym-map msg-rec-name msg failure-time-ms failure-cb)]
+      (if (ca/offer! send-chan msg-info)
+        (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
+        (when failure-cb
+          (failure-cb (ex-info "RPC cannot be sent. Send queue is full."
+                               {:rpc-info msg-info}))))))
 
-  (set-msg-handler [this msg-name-kw handler]
-    (u/set-msg-handler msg-name-kw handler peer-role peer-name-maps
-                       *msg-rec-name->handler))
+  (send-msg* [this msg-name-kw msg timeout-ms]
+    (let [msg-rec-name (msg-name->rec-name msg-name-kw)
+          msg {:arg msg}
+          failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
+          msg-info (u/sym-map msg-rec-name msg failure-time-ms)]
+      (ca/offer! send-chan msg-info)))
+
+  (set-handler [this msg-name-kw handler]
+    (cond
+      ((:rpc-name->req-name peer-name-maps) msg-name-kw)
+      (u/set-rpc-handler msg-name-kw handler peer-role peer-name-maps
+                         *msg-rec-name->handler)
+
+      ((:msg-name->rec-name peer-name-maps) msg-name-kw)
+      (u/set-msg-handler msg-name-kw handler peer-role peer-name-maps
+                         *msg-rec-name->handler)
+
+      :else
+      (throw
+       (ex-info (str "Cannot set handler. Peer role `" peer-role
+                     "` is not a sender for msg `" msg-name-kw "`.")
+                (u/sym-map peer-role msg-name-kw)))))
 
   (shutdown [this]
     (reset! *shutdown? true)
@@ -161,10 +172,10 @@
             (let [rand-mult (+ 0.5 (rand))
                   new-wait-ms (* wait-ms conn-wait-ms-multiplier rand-mult)]
               (if (< new-wait-ms max-conn-wait-ms)
-                  (recur new-wait-ms)
-                  (do
-                    (errorf "Authentication timed out. Shutting down.")
-                    (shutdown this))))
+                (recur new-wait-ms)
+                (do
+                  (errorf "Authentication timed out. Shutting down.")
+                  (shutdown this))))
             (if-not success?
               (do
                 (reset! *credentials nil)
@@ -379,7 +390,7 @@
                 (let [conn-id 0 ;; there is only one connection
                       sender (fn [msg-rec-name msg]
                                (when-not (ca/offer! send-chan
-                                                  (u/sym-map msg-rec-name msg))
+                                                    (u/sym-map msg-rec-name msg))
                                  (errorf
                                   "RPC rsp cannot be sent. Queue is full.")))]
                   (u/handle-rcv :client conn-id sender (name peer-role) data
@@ -403,15 +414,26 @@
     <get-credentials :- u/GetCredentialsFn
     protocol :- u/Protocol
     role :- u/Role
-    opts :- u/ClientOptions]
-   (let [opts (merge default-client-options opts)
+    options :- u/ClientOptions]
+   (when-not (ifn? <get-url)
+     (throw (ex-info "`<get-url` parameter must be a function."
+                     (u/sym-map <get-url))))
+   (when-not (ifn? <get-credentials)
+     (throw (ex-info "`<get-credentials` parameter must be a function."
+                     (u/sym-map <get-credentials))))
+   (u/check-protocol protocol)
+   (when-not (keyword? role)
+     (throw (ex-info "`role` parameter must be a keyword." (u/sym-map role))))
+   (when-not (map? options)
+     (throw (ex-info "`options` parameter must be a map."
+                     (u/sym-map options))))
+   (let [opts (merge default-client-options options)
          {:keys [default-rpc-timeout-ms
                  rcv-queue-size
                  send-queue-size
                  silence-log?
                  <on-reconnect
-                 rpc-handlers
-                 msg-handlers]} opts
+                 handlers]} opts
          *rcv-chan (atom nil)
          send-chan (ca/chan send-queue-size)
          reconnect-chan (ca/chan)
@@ -440,10 +462,8 @@
                  role peer-role peer-name-maps
                  *url->server-fp *server-pcf *rpc-id *tube-client *credentials
                  *shutdown? *rpc-id->rpc-info *msg-rec-name->handler)]
-     (doseq [[rpc-name-kw handler] rpc-handlers]
-       (set-rpc-handler client rpc-name-kw handler))
-     (doseq [[msg-name-kw handler] msg-handlers]
-       (set-msg-handler client msg-name-kw handler))
+     (doseq [[msg-name-kw handler] handlers]
+       (set-handler client msg-name-kw handler))
      (start-connect-loop* client)
      (start-gc-loop* client)
      (start-rcv-loop* client)

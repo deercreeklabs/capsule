@@ -19,7 +19,7 @@
 
 (def Nil (s/eq nil))
 (def LancasterSchema (s/pred l/schema?))
-(def RpcOrMsgName s/Keyword)
+(def MsgName s/Keyword)
 (def Role s/Keyword)
 (def Path s/Str)
 (def SubjectId s/Str)
@@ -30,25 +30,23 @@
   {(s/required-key :conn-id) ConnId
    (s/required-key :sender) s/Any
    (s/required-key :subject-id) SubjectId
-   (s/required-key :msg-name) RpcOrMsgName
+   (s/required-key :msg-name) MsgName
    (s/required-key :encoded-msg) ba/ByteArray
    (s/required-key :writer-pcf) s/Str
    (s/required-key :msgs-union-schema) LancasterSchema
    (s/optional-key :rpc-id) RpcId
    (s/optional-key :timeout-ms) s/Int})
 (def Handler (s/=> s/Any s/Any MsgMetadata))
-(def HandlerMap {RpcOrMsgName Handler})
+(def HandlerMap {MsgName Handler})
 (def Authenticator (s/=> au/Channel SubjectId Credential))
 (def TubeConn (s/protocol tc/IConnection))
 (def GetURLFn (s/=> au/Channel))
 (def GetCredentialsFn (s/=> au/Channel))
-(def MsgDefs {RpcOrMsgName LancasterSchema})
-(def RpcDefs {RpcOrMsgName {:arg LancasterSchema
-                            :ret LancasterSchema}})
-(def RoleDef
-  {(s/optional-key :rpcs) RpcDefs
-   (s/optional-key :msgs) MsgDefs})
-(def Protocol{Role RoleDef})
+(def Protocol
+  {:roles [(s/one Role "first-role") (s/one Role "second-role")]
+   :msgs {MsgName {(s/required-key :arg) LancasterSchema
+                   (s/optional-key :ret) LancasterSchema
+                   (s/required-key :sender) Role}}})
 (def Callback (s/=> s/Any s/Any))
 (def ClientOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
@@ -56,16 +54,12 @@
    (s/optional-key :send-queue-size) s/Int
    (s/optional-key :silence-log?) s/Bool
    (s/optional-key :<on-reconnect) Callback
-   (s/optional-key :rpc-handlers) HandlerMap
-   (s/optional-key :msg-handlers) HandlerMap})
+   (s/optional-key :handlers) HandlerMap})
 (def EndpointOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
    (s/optional-key :silence-log?) s/Bool
-   (s/optional-key :rpc-handlers) HandlerMap
-   (s/optional-key :msg-handlers) HandlerMap})
+   (s/optional-key :handlers) HandlerMap})
 
-(def RolesToRpcs
-  {Role #{RpcOrMsgName}})
 
 (defmacro sym-map
   "Builds a map from symbols.
@@ -130,13 +124,26 @@
                           [[:rpc-id rpc-id-schema]
                            [:ret (:ret rpc-def)]])))
 
-(defn make-msg-schema [[msg-name msg-def]]
+(defn make-msg-schema [[msg-name {:keys [arg]}]]
   (let [rec-name (make-msg-record-name :msg msg-name)]
     (l/make-record-schema rec-name
-                          [[:arg msg-def]])))
+                          [[:arg arg]])))
+
+(defn get-rpcs [protocol role]
+  (filter (fn [[msg-name {:keys [ret sender]}]]
+            (and ret
+                 (#{role :either} sender)))
+          (:msgs protocol)))
+
+(defn get-msgs [protocol role]
+  (filter (fn [[msg-name {:keys [ret sender]}]]
+            (and (not ret)
+                 (#{role :either} sender)))
+          (:msgs protocol)))
 
 (defn make-name-maps [protocol role]
-  (let [{:keys [rpcs msgs]} (protocol role)
+  (let [rpcs (get-rpcs protocol role)
+        msgs (get-msgs protocol role)
         rpc-name->req-name (reduce (fn [acc [msg-name msg-def]]
                                      (assoc acc msg-name
                                             (make-msg-record-name
@@ -155,7 +162,8 @@
     (sym-map rpc-name->req-name rpc-name->rsp-name msg-name->rec-name)))
 
 (defn make-role-schemas [protocol role]
-  (let [{:keys [rpcs msgs]} (protocol role)
+  (let [rpcs (get-rpcs protocol role)
+        msgs (get-msgs protocol role)
         rpc-req-schemas (map make-rpc-req-schema rpcs)
         rpc-success-rsp-schemas (map make-rpc-success-rsp-schema rpcs)
         msg-schemas (map make-msg-schema msgs)]
@@ -164,7 +172,7 @@
 (s/defn make-msgs-union-schema :- LancasterSchema
   [protocol :- Protocol]
   (let [role-schemas (mapcat (partial make-role-schemas protocol)
-                             (keys protocol))]
+                             (:roles protocol))]
     (l/make-union-schema (concat [login-req-schema login-rsp-schema
                                   rpc-failure-rsp-schema]
                                  role-schemas))))
@@ -188,41 +196,38 @@
   #?(:clj (System/currentTimeMillis)
      :cljs (.getTime (js/Date.))))
 
-(defn check-role [role-name role-def]
-  (let [{:keys [rpcs msgs]} role-def]
-    (doseq [[rpc-name rpc-def] rpcs]
-      (let [{:keys [arg ret]} rpc-def]
-        (when-not (keyword? rpc-name)
-          (throw (ex-info "RPC names must be keywords."
-                          (sym-map rpc-name rpc-def role-name role-def))))
-        (when-not arg
-          (throw (ex-info "RPC definition must include an :arg key."
-                          (sym-map rpc-name rpc-def role-name role-def))))
+(defn check-protocol [protocol]
+  (let [{:keys [roles msgs]} protocol
+        roles-set (conj (set roles) :either)]
+    (when-not (sequential? roles)
+      (throw (ex-info (str "The value of the :roles key must be a sequence of "
+                           "exactly two keywords.")
+                      (sym-map protocol))))
+    (when-not (= 2 (count roles))
+      (throw (ex-info (str "The value of the :roles key must be a sequence of "
+                           "exactly two keywords.")
+                      (sym-map protocol))))
+    (doseq [[msg-name msg-def] msgs]
+      (let [{:keys [arg ret sender]} msg-def]
+        (when-not (keyword? msg-name)
+          (throw (ex-info "Msg names must be keywords."
+                          (sym-map msg-name msg-def))))
+        (when-not (contains? msg-def :arg)
+          (throw (ex-info "Msg definitions must include an :arg key."
+                          (sym-map msg-name msg-def))))
         (when-not (l/schema? arg)
-          (throw (ex-info "RPC :arg value must be a LancasterSchema object."
-                          (sym-map rpc-name rpc-def role-name role-def))))
-        (when-not ret
-          (throw (ex-info "RPC definition must include a :ret key."
-                          (sym-map rpc-name rpc-def role-name role-def))))
-        (when-not (l/schema? ret)
-          (throw (ex-info "RPC :ret value must be a LancasterSchema object."
-                          (sym-map rpc-name rpc-def role-name role-def))))))
-    (doseq [[msg-name msg-schema] msgs]
-      (when-not (keyword? msg-name)
-        (throw (ex-info "Msg names must be keywords."
-                        (sym-map msg-name msg-schema))))
-      (when-not (l/schema? msg-schema)
-        (throw (ex-info "Msg values must be LancasterSchema objects."
-                        (sym-map msg-name msg-schema role-name role-def)))))))
-
-(defn valid-protocol? [protocol]
-  (when-not (= 2 (count (keys protocol)))
-    (ex-info (str "The protocol must have exactly two keys, which are "
-                  "role name keywords.")
-             (sym-map protocol)))
-  (doseq [[role-name role-def] protocol]
-    (check-role role-name role-def))
-  true)
+          (throw (ex-info "Msg :arg value must be a LancasterSchema object."
+                          (sym-map msg-name msg-def))))
+        (when (and ret
+                   (not (l/schema? ret)))
+          (throw (ex-info (str "If present, :ret value must be a "
+                               "LancasterSchema object.")
+                          (sym-map msg-name msg-def))))
+        (when-not (roles-set sender)
+          (throw (ex-info (str "Msg :sender value must be one of the two "
+                               "specified roles or the keyword `:either`.")
+                          (sym-map msg-name msg-def)))))))
+  nil)
 
 (defn handle-rcv
   [rcvr-type conn-id sender subject-id encoded-msg msgs-union-schema writer-pcf
@@ -294,12 +299,6 @@
 (defn set-rpc-handler
   [rpc-name-kw handler peer-role peer-name-maps *msg-rec-name->handler]
   (let [req-name ((:rpc-name->req-name peer-name-maps) rpc-name-kw)
-        _ (when-not req-name
-            (throw
-             (ex-info (str "Protocol violation. Peer role `" peer-role
-                           "` does not have an RPC named `"
-                           rpc-name-kw "`.")
-                      (sym-map peer-role rpc-name-kw))))
         rsp-name ((:rpc-name->rsp-name peer-name-maps) rpc-name-kw)
         rpc-handler (make-rpc-req-handler rpc-name-kw rsp-name handler)]
     (swap! *msg-rec-name->handler assoc req-name rpc-handler)))
@@ -307,18 +306,12 @@
 (defn set-msg-handler
   [msg-name-kw handler peer-role peer-name-maps *msg-rec-name->handler]
   (let [rec-name ((:msg-name->rec-name peer-name-maps) msg-name-kw)]
-    (when-not rec-name
-      (throw
-       (ex-info (str "Protocol violation. Peer role `" peer-role
-                     "` does not have a msg named `"
-                     msg-name-kw "`.")
-                (sym-map peer-role msg-name-kw))))
     (swap! *msg-rec-name->handler assoc rec-name
            (fn [msg metadata]
              (handler (:arg msg) metadata)))))
 
 (defn get-peer-role [protocol role]
-  (-> (keys protocol)
+  (-> (:roles protocol)
       (set)
       (disj role)
       (first)))

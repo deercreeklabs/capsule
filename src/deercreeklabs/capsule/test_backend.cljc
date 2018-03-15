@@ -30,8 +30,8 @@
                                   :backend options)
                   (cc/make-client <get-gw-url <get-credentials protocol
                                   :backend))]
-     (cc/set-rpc-handler client :add handle-add)
-     (cc/set-rpc-handler client :subtract handle-subtract)
-     (cc/set-msg-handler client :request-greeting-update
-                         (partial handle-request-greeting-update client))
+     (cc/set-handler client :add handle-add)
+     (cc/set-handler client :subtract handle-subtract)
+     (cc/set-handler client :request-greeting-update
+                     (partial handle-request-greeting-update client))
      client)))

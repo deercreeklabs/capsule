@@ -17,11 +17,11 @@
 (defn <handle-client-add [be arg metadata]
   (let [ids (ep/get-subject-conn-ids be "backend")
         conn-id (first ids)]
-    (ep/<send-rpc be conn-id :add arg)))
+    (ep/<send-msg be conn-id :add arg)))
 
 (defn <handle-client-subtract [be arg metadata]
   (let [conn-id (first (ep/get-subject-conn-ids be "backend"))]
-    (ep/<send-rpc be conn-id :subtract arg)))
+    (ep/<send-msg be conn-id :subtract arg)))
 
 (defn handle-client-request-greeting-update [be msg metadata]
   (let [conn-id (first (ep/get-subject-conn-ids be "backend"))]
@@ -49,18 +49,18 @@
                    "client" test-authenticate client-proto :gateway)
         backend-ep (ep/make-endpoint
                     "backend" test-authenticate backend-proto :gateway)]
-    (ep/set-rpc-handler client-ep :add
+    (ep/set-handler client-ep :add
                         (partial <handle-client-add backend-ep))
-    (ep/set-rpc-handler client-ep :subtract
+    (ep/set-handler client-ep :subtract
                         (partial <handle-client-subtract backend-ep))
-    (ep/set-msg-handler client-ep :request-greeting-update
+    (ep/set-handler client-ep :request-greeting-update
                         (partial handle-client-request-greeting-update
                                  backend-ep))
-    (ep/set-msg-handler client-ep :ping (partial handle-client-ping client-ep))
-    (ep/set-msg-handler client-ep :request-conn-count
+    (ep/set-handler client-ep :ping (partial handle-client-ping client-ep))
+    (ep/set-handler client-ep :request-conn-count
                         (partial handle-client-request-conn-count client-ep))
-    (ep/set-msg-handler client-ep :ping (partial handle-client-ping client-ep))
-    (ep/set-msg-handler backend-ep :set-greeting
+    (ep/set-handler client-ep :ping (partial handle-client-ping client-ep))
+    (ep/set-handler backend-ep :set-greeting
                         (partial handle-backend-set-greeting client-ep))
     (cs/make-server [client-ep backend-ep])))
 
