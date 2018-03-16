@@ -114,6 +114,21 @@
            (cc/shutdown client)
            (cc/shutdown backend)))))))
 
+(deftest test-one-way-w-channel
+  (au/test-async
+   test-timeout
+   (ca/go
+     (let [client (cc/make-client (make-<get-gw-url "client")
+                                  (make-<get-credentials "client1" "test")
+                                  cg-proto :client {:silence-log? true})]
+       (try
+         (let [msg-ch (cc/<send-msg client :request-greeting-update nil)
+               [v ch] (au/alts? [msg-ch (ca/timeout 1000)])]
+           (is (= msg-ch ch))
+           (is (nil? v)))
+         (finally
+           (cc/shutdown client)))))))
+
 (deftest test-send-msg-to-all-conns
   (au/test-async
    test-timeout
@@ -161,14 +176,14 @@
      (let [client0-conn-count-chan (ca/chan)
            client1-conn-count-chan (ca/chan)
            client0-opts {:handlers {:subject-conn-count
-                                        (fn [msg metadata]
-                                          (ca/put! client0-conn-count-chan
-                                                   msg))}
+                                    (fn [msg metadata]
+                                      (ca/put! client0-conn-count-chan
+                                               msg))}
                          :silence-log? true}
            client1-opts {:handlers {:subject-conn-count
-                                        (fn [msg metadata]
-                                          (ca/put! client1-conn-count-chan
-                                                   msg))}
+                                    (fn [msg metadata]
+                                      (ca/put! client1-conn-count-chan
+                                               msg))}
                          :silence-log? true}
            client0 (cc/make-client (make-<get-gw-url "client")
                                    (make-<get-credentials "client0" "test")

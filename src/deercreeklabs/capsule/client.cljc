@@ -68,7 +68,10 @@
 
   (<send-msg [this msg-name-kw arg timeout-ms]
     (let [ch (ca/chan)
-          cb #(ca/put! ch %)]
+          cb (fn [arg]
+               (if (nil? arg)
+                 (ca/close! ch)
+                 (ca/put! ch arg)))]
       (send-msg this msg-name-kw arg cb cb timeout-ms)
       ch))
 
@@ -90,7 +93,10 @@
       (send-rpc* this msg-name-kw arg success-cb failure-cb timeout-ms)
 
       (msg-name->rec-name msg-name-kw)
-      (send-msg* this msg-name-kw arg timeout-ms)
+      (do
+        (send-msg* this msg-name-kw arg timeout-ms)
+        (when success-cb
+          (success-cb nil)))
 
       :else
       (throw
