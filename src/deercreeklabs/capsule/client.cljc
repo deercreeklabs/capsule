@@ -133,14 +133,17 @@
         (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
         (when failure-cb
           (failure-cb (ex-info "RPC cannot be sent. Send queue is full."
-                               {:rpc-info msg-info}))))))
+                               {:rpc-info msg-info})))))
+    nil)
 
   (send-msg* [this msg-name-kw msg timeout-ms]
     (let [msg-rec-name (msg-name->rec-name msg-name-kw)
           msg {:arg msg}
           failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
           msg-info (u/sym-map msg-rec-name msg failure-time-ms)]
-      (ca/offer! send-chan msg-info)))
+      (ca/offer! send-chan msg-info))
+    nil)
+
   (<do-login* [this tube-client rcv-chan credentials]
     (au/go
       (tc/send tube-client
@@ -389,10 +392,12 @@
                 (let [conn-id 0 ;; there is only one connection
                       sender (fn [msg-rec-name msg]
                                (when-not (ca/offer! send-chan
-                                                    (u/sym-map msg-rec-name msg))
+                                                    (u/sym-map msg-rec-name
+                                                               msg))
                                  (errorf
                                   "RPC rsp cannot be sent. Queue is full.")))]
-                  (u/handle-rcv :client conn-id sender (name peer-role) data
+                  (u/handle-rcv :client conn-id sender (name peer-role)
+                                (name peer-role) data
                                 msgs-union-schema @*server-pcf
                                 *msg-rec-name->handler))))
             (ca/<! (ca/timeout 100))) ;; Wait for rcv-chan to be set

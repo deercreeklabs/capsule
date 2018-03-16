@@ -30,6 +30,7 @@
   {(s/required-key :conn-id) ConnId
    (s/required-key :sender) s/Any
    (s/required-key :subject-id) SubjectId
+   (s/required-key :peer-id) s/Str
    (s/required-key :msg-name) MsgName
    (s/required-key :encoded-msg) ba/ByteArray
    (s/required-key :writer-pcf) s/Str
@@ -198,7 +199,8 @@
 
 (defn check-protocol [protocol]
   (let [{:keys [roles msgs]} protocol
-        roles-set (conj (set roles) :either)]
+        roles-set (set roles)
+        roles-set-w-either (conj roles-set :either)]
     (when-not (sequential? roles)
       (throw (ex-info (str "The value of the :roles key must be a sequence of "
                            "exactly two keywords.")
@@ -207,6 +209,10 @@
       (throw (ex-info (str "The value of the :roles key must be a sequence of "
                            "exactly two keywords.")
                       (sym-map protocol))))
+    (when (roles-set :either)
+      (throw (ex-info (str "The value of the :roles key must not contain "
+                           " the keyword `:either`.")
+                      (sym-map roles protocol))))
     (doseq [[msg-name msg-def] msgs]
       (let [{:keys [arg ret sender]} msg-def]
         (when-not (keyword? msg-name)
@@ -223,19 +229,19 @@
           (throw (ex-info (str "If present, :ret value must be a "
                                "LancasterSchema object.")
                           (sym-map msg-name msg-def))))
-        (when-not (roles-set sender)
+        (when-not (roles-set-w-either sender)
           (throw (ex-info (str "Msg :sender value must be one of the two "
                                "specified roles or the keyword `:either`.")
                           (sym-map msg-name msg-def)))))))
   nil)
 
 (defn handle-rcv
-  [rcvr-type conn-id sender subject-id encoded-msg msgs-union-schema writer-pcf
-   *msg-record-name->handler]
+  [rcvr-type conn-id sender subject-id peer-id encoded-msg
+   msgs-union-schema writer-pcf *msg-record-name->handler]
   (let [[msg-name msg] (l/deserialize msgs-union-schema writer-pcf encoded-msg)
         handler (@*msg-record-name->handler msg-name)
-        metadata (sym-map conn-id sender subject-id encoded-msg writer-pcf
-                          msgs-union-schema msg-name)]
+        metadata (sym-map conn-id sender subject-id peer-id encoded-msg
+                          writer-pcf msgs-union-schema msg-name)]
     (when (not handler)
       (let [data (ba/byte-array->debug-str encoded-msg)]
         (throw (ex-info (str "No handler is defined for " msg-name)

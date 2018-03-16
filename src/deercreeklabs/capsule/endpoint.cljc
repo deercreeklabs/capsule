@@ -86,13 +86,14 @@
   (on-rcv [this tube-conn data]
     (try
       (let [conn-id (tc/get-conn-id tube-conn)
+            peer-id (tc/get-remote-addr tube-conn)
             sender (fn [msg-rec-name msg]
                      (tc/send tube-conn (l/serialize msgs-union-schema
                                                      [msg-rec-name msg])))]
         (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
           (if-let [subject-id (.subject-id conn-info)]
-            (u/handle-rcv :endpoint conn-id sender subject-id data
-                          msgs-union-schema (.client-pcf conn-info)
+            (u/handle-rcv :endpoint conn-id sender subject-id
+                          peer-id data msgs-union-schema (.client-pcf conn-info)
                           *msg-rec-name->handler)
             (<handle-login-req* this conn-id sender conn-info data))
           (do-schema-negotiation* this conn-id tube-conn data)))

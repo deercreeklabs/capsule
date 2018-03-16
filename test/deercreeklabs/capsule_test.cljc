@@ -69,6 +69,36 @@
   (is (nil? (u/check-protocol calc-protocols/client-gateway-protocol)))
   (is (nil? (u/check-protocol calc-protocols/gateway-backend-protocol))))
 
+(deftest test-bad-prototocol-roles-type
+  (try
+    (u/check-protocol {:roles {:a :b :c :d}
+                       :msgs {}})
+    (is (= :should-not-reach-this-point :but-did))
+    (catch #?(:clj Exception :cljs js/Error) e
+      (is (clojure.string/includes?
+           (lu/get-exception-msg e)
+           "roles key must be a sequence of exactly two keywords")))))
+
+(deftest test-bad-prototocol-roles-number
+  (try
+    (u/check-protocol {:roles []
+                       :msgs {}})
+    (is (= :should-not-reach-this-point :but-did))
+    (catch #?(:clj Exception :cljs js/Error) e
+      (is (clojure.string/includes?
+           (lu/get-exception-msg e)
+           "roles key must be a sequence of exactly two keywords")))))
+
+(deftest test-bad-prototocol-role-either
+  (try
+    (u/check-protocol {:roles [:server :either]
+                       :msgs {}})
+    (is (= :should-not-reach-this-point :but-did))
+    (catch #?(:clj Exception :cljs js/Error) e
+      (is (clojure.string/includes?
+           (lu/get-exception-msg e)
+           ":roles key must not contain  the keyword `:either`")))))
+
 (deftest test-calculate
   (au/test-async
    test-timeout
