@@ -44,7 +44,7 @@
 
 (defprotocol IEndpointInternals
   (do-schema-negotiation* [this conn-id tube-conn data])
-  (<handle-login-req* [this conn-id sender conn-info data])
+  (<handle-login-req* [this msg metadata])
   (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms])
   (send-msg* [this conn-id msg-name-kw msg timeout-ms])
   (start-gc-loop* [this])
@@ -91,11 +91,9 @@
                      (tc/send tube-conn (l/serialize msgs-union-schema
                                                      [msg-rec-name msg])))]
         (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
-          (if-let [subject-id (.subject-id conn-info)]
-            (u/handle-rcv :endpoint conn-id sender subject-id
-                          peer-id data msgs-union-schema (.client-pcf conn-info)
-                          *msg-rec-name->handler)
-            (<handle-login-req* this conn-id sender conn-info data))
+          (u/handle-rcv :endpoint conn-id sender (.subject-id conn-info)
+                        peer-id data msgs-union-schema (.client-pcf conn-info)
+                        *msg-rec-name->handler)
           (do-schema-negotiation* this conn-id tube-conn data)))
       (catch #?(:clj Exception :cljs js/Error) e
         (errorf "Error in on-rcv: %s"
@@ -137,20 +135,8 @@
                 (u/sym-map role msg-name-kw arg)))))
 
   (set-handler [this msg-name-kw handler]
-    (cond
-      ((:rpc-name->req-name peer-name-maps) msg-name-kw)
-      (u/set-rpc-handler msg-name-kw handler peer-role peer-name-maps
-                         *msg-rec-name->handler)
-
-      ((:msg-name->rec-name peer-name-maps) msg-name-kw)
-      (u/set-msg-handler msg-name-kw handler peer-role peer-name-maps
-                         *msg-rec-name->handler)
-
-      :else
-      (throw
-       (ex-info (str "Cannot set handler. Peer role `" peer-role
-                     "` is not a sender for msg `" msg-name-kw "`.")
-                (u/sym-map peer-role msg-name-kw)))))
+    (u/set-handler msg-name-kw handler peer-name-maps *msg-rec-name->handler
+                   peer-role))
 
   (send-msg-to-subject-conns [this subject-id msg-name-kw msg]
     (doseq [conn-id (@*subject-id->conn-ids subject-id)]
@@ -203,18 +189,14 @@
         (let [conn-info (->ConnInfo tube-conn nil client-pcf)]
           (swap! *conn-id->conn-info assoc conn-id conn-info)))))
 
-  (<handle-login-req* [this conn-id sender conn-info data]
+  (<handle-login-req* [this msg metadata]
     (ca/go
       (try
-        (let [writer-pcf (.client-pcf ^ConnInfo conn-info)
-              [msg-name msg] (l/deserialize msgs-union-schema writer-pcf data)
-              _ (when-not (= ::u/login-req msg-name)
-                  (throw (ex-info (str "Got incorrect message: " msg-name
-                                       "Expected login-req.")
-                                  (u/sym-map msg-name msg))))
-              {:keys [subject-id credential]} msg
+        (let [{:keys [subject-id credential]} msg
+              {:keys [conn-id sender]} metadata
+              conn-info (@*conn-id->conn-info conn-id)
               tube-conn (.tube-conn ^ConnInfo conn-info)
-              auth-ret (authenticator subject-id credential)
+              auth-ret (authenticator subject-id credential metadata)
               was-successful (boolean (if-not (au/channel? auth-ret)
                                         auth-ret
                                         (au/<? auth-ret)))
@@ -233,13 +215,15 @@
                          #{conn-id})))
               (sender ::u/login-rsp rsp))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (errorf "Error in <handle-login-req: %s"
+          (errorf "Error in <handle-login-req*: %s"
                   (lu/get-exception-msg-and-stacktrace e))))))
 
   (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms]
     (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
           rpc-id (u/get-rpc-id* *rpc-id)
-          failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
+          failure-time-ms  (+ (#?(:clj long :cljs identity)
+                               (u/get-current-time-ms))
+                              (int timeout-ms))
           rpc-info (u/sym-map rpc-name-kw arg rpc-id success-cb
                               failure-cb timeout-ms failure-time-ms)
           msg (u/sym-map rpc-id timeout-ms arg)
@@ -312,14 +296,17 @@
          *rpc-id->rpc-info (atom {})
          *shutdown? (atom false)
          *msg-rec-name->handler (atom (u/make-msg-rec-name->handler
-                                          my-name-maps peer-name-maps
-                                          *rpc-id->rpc-info silence-log?))
+                                       my-name-maps peer-name-maps
+                                       *rpc-id->rpc-info silence-log?))
          endpoint (->Endpoint
                    path authenticator rpc-name->req-name msg-name->rec-name
                    msgs-union-schema default-rpc-timeout-ms role peer-role
                    peer-name-maps *conn-id->conn-info *subject-id->conn-ids
                    *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
                    *shutdown? *msg-rec-name->handler)]
+     (swap! *msg-rec-name->handler assoc ::u/login-req
+            (partial <handle-login-req* endpoint))
+
      (doseq [[msg-name-kw handler] handlers]
        (set-handler endpoint msg-name-kw handler))
      (start-gc-loop* endpoint)

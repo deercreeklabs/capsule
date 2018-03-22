@@ -105,20 +105,8 @@
                 (u/sym-map role msg-name-kw arg)))))
 
   (set-handler [this msg-name-kw handler]
-    (cond
-      ((:rpc-name->req-name peer-name-maps) msg-name-kw)
-      (u/set-rpc-handler msg-name-kw handler peer-role peer-name-maps
-                         *msg-rec-name->handler)
-
-      ((:msg-name->rec-name peer-name-maps) msg-name-kw)
-      (u/set-msg-handler msg-name-kw handler peer-role peer-name-maps
-                         *msg-rec-name->handler)
-
-      :else
-      (throw
-       (ex-info (str "Cannot set handler. Peer role `" peer-role
-                     "` is not a sender for msg `" msg-name-kw "`.")
-                (u/sym-map peer-role msg-name-kw)))))
+    (u/set-handler msg-name-kw handler peer-name-maps *msg-rec-name->handler
+                   peer-role))
 
   (shutdown [this]
     (reset! *shutdown? true)

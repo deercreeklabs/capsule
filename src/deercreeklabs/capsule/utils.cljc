@@ -239,7 +239,12 @@
   [rcvr-type conn-id sender subject-id peer-id encoded-msg
    msgs-union-schema writer-pcf *msg-record-name->handler]
   (let [[msg-name msg] (l/deserialize msgs-union-schema writer-pcf encoded-msg)
+        _ (when (and (not subject-id)
+                     (not (= ::login-req msg-name)))
+            (throw (ex-info "Subject is not logged in."
+                            (sym-map conn-id peer-id msg-name msg))))
         handler (@*msg-record-name->handler msg-name)
+        m @*msg-record-name->handler
         metadata (sym-map conn-id sender subject-id peer-id encoded-msg
                           writer-pcf msgs-union-schema msg-name)]
     (when (not handler)
@@ -303,18 +308,35 @@
                m (:rpc-name->rsp-name my-name-maps))))
 
 (defn set-rpc-handler
-  [rpc-name-kw handler peer-role peer-name-maps *msg-rec-name->handler]
+  [rpc-name-kw handler peer-name-maps *msg-rec-name->handler]
   (let [req-name ((:rpc-name->req-name peer-name-maps) rpc-name-kw)
         rsp-name ((:rpc-name->rsp-name peer-name-maps) rpc-name-kw)
         rpc-handler (make-rpc-req-handler rpc-name-kw rsp-name handler)]
     (swap! *msg-rec-name->handler assoc req-name rpc-handler)))
 
 (defn set-msg-handler
-  [msg-name-kw handler peer-role peer-name-maps *msg-rec-name->handler]
+  [msg-name-kw handler peer-name-maps *msg-rec-name->handler]
   (let [rec-name ((:msg-name->rec-name peer-name-maps) msg-name-kw)]
     (swap! *msg-rec-name->handler assoc rec-name
            (fn [msg metadata]
              (handler (:arg msg) metadata)))))
+
+(defn set-handler [msg-name-kw handler peer-name-maps *msg-rec-name->handler
+                   peer-role]
+  (cond
+    ((:rpc-name->req-name peer-name-maps) msg-name-kw)
+    (set-rpc-handler msg-name-kw handler peer-name-maps
+                     *msg-rec-name->handler)
+
+    ((:msg-name->rec-name peer-name-maps) msg-name-kw)
+    (set-msg-handler msg-name-kw handler peer-name-maps
+                     *msg-rec-name->handler)
+
+    :else
+    (throw
+     (ex-info (str "Cannot set handler. Peer role `" peer-role
+                   "` is not a sender for msg `" msg-name-kw "`.")
+              (sym-map peer-role msg-name-kw)))))
 
 (defn get-peer-role [protocol role]
   (-> (:roles protocol)

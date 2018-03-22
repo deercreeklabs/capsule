@@ -10,7 +10,7 @@
    [schema.core :as s]
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
-(defn test-authenticate [subject-id credential]
+(defn test-authenticate [subject-id credential metadata]
   (boolean (and (#{"test" "client0" "client1" "client2" "backend"} subject-id)
                 (= "test" credential))))
 
