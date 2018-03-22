@@ -215,9 +215,9 @@
               {:keys [subject-id credential]} msg
               tube-conn (.tube-conn ^ConnInfo conn-info)
               auth-ret (authenticator subject-id credential)
-              was-successful (if-not (au/channel? auth-ret)
-                               auth-ret
-                               (au/<? auth-ret))
+              was-successful (boolean (if-not (au/channel? auth-ret)
+                                        auth-ret
+                                        (au/<? auth-ret)))
               rsp (u/sym-map was-successful)]
           (if-not was-successful
             (do
