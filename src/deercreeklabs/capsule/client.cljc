@@ -54,7 +54,7 @@
   (start-rcv-loop* [this]))
 
 (defrecord CapsuleClient
-    [<get-url <get-credentials *rcv-chan send-chan reconnect-chan
+    [get-url get-credentials *rcv-chan send-chan reconnect-chan
      rpc-name->req-name msg-name->rec-name
      msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
      rcv-queue-size send-queue-size silence-log? <on-reconnect
@@ -196,16 +196,19 @@
     (ca/go
       (try
         (loop [wait-ms initial-conn-wait-ms]
-          (let [credentials-ch (<get-credentials)
-                [credentials ch] (au/alts?
-                                  [credentials-ch (ca/timeout wait-ms)])]
-            (if (= credentials-ch ch)
-              credentials
-              (let [rand-mult (+ 0.5 (rand))
-                    new-wait-ms (* wait-ms conn-wait-ms-multiplier rand-mult)]
-                (if (< new-wait-ms max-conn-wait-ms)
-                  (recur new-wait-ms)
-                  false)))))
+          (let [creds-ret (get-credentials)]
+            (if-not (au/channel? creds-ret)
+              creds-ret
+              (let [timeout-ch (ca/timeout wait-ms)
+                    [credentials ch] (au/alts? [creds-ret timeout-ch])]
+                (if (not= timeout-ch ch)
+                  credentials
+                  (let [rand-mult (+ 0.5 (rand))
+                        new-wait-ms (* wait-ms conn-wait-ms-multiplier
+                                       rand-mult)]
+                    (if (< new-wait-ms max-conn-wait-ms)
+                      (recur new-wait-ms)
+                      false)))))))
         (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Error in <get-credentials: %s"
                   (lu/get-exception-msg-and-stacktrace e))
@@ -224,7 +227,7 @@
             (errorf "Authentication failed. Shutting down.")
             (shutdown this)))
         (do
-          (errorf "<get-credentials failed. Shutting down.")
+          (errorf "<get-credentials* failed. Shutting down.")
           (shutdown this)))))
 
   (<do-schema-negotiation-and-auth* [this tube-client rcv-chan url]
@@ -243,11 +246,14 @@
   (<get-url* [this wait-ms]
     (ca/go
       (try
-        (let [url-ch (<get-url)
-              [url ch] (au/alts? [url-ch (ca/timeout wait-ms)])]
-          (if (= url-ch ch)
-            url
-            false))
+        (let [url-ret (get-url)]
+          (if-not (au/channel? url-ret)
+            url-ret
+            (let [timeout-ch (ca/timeout wait-ms)
+                  [url ch] (au/alts? [url-ret timeout-ch])]
+              (if (= timeout-ch ch)
+                false
+                url))))
         (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Error in <get-url: %s"
                   (lu/get-exception-msg-and-stacktrace e))
@@ -268,7 +274,7 @@
                   (recur new-wait-ms))
                 (if-not (string? url)
                   (do
-                    (errorf "<get-url did not return a string, returned: %s"
+                    (errorf "<get-url* did not return a string, returned: %s"
                             url)
                     (ca/<! (ca/timeout wait-ms))
                     (recur new-wait-ms))
@@ -415,22 +421,22 @@
 
 
 (s/defn make-client :- (s/protocol ICapsuleClient)
-  ([<get-url :- u/GetURLFn
-    <get-credentials :- u/GetCredentialsFn
+  ([get-url :- u/GetURLFn
+    get-credentials :- u/GetCredentialsFn
     protocol :- u/Protocol
     role :- u/Role]
-   (make-client <get-url <get-credentials protocol role {}))
-  ([<get-url :- u/GetURLFn
-    <get-credentials :- u/GetCredentialsFn
+   (make-client get-url get-credentials protocol role {}))
+  ([get-url :- u/GetURLFn
+    get-credentials :- u/GetCredentialsFn
     protocol :- u/Protocol
     role :- u/Role
     options :- u/ClientOptions]
-   (when-not (ifn? <get-url)
-     (throw (ex-info "`<get-url` parameter must be a function."
-                     (u/sym-map <get-url))))
-   (when-not (ifn? <get-credentials)
-     (throw (ex-info "`<get-credentials` parameter must be a function."
-                     (u/sym-map <get-credentials))))
+   (when-not (ifn? get-url)
+     (throw (ex-info "`get-url` parameter must be a function."
+                     (u/sym-map get-url))))
+   (when-not (ifn? get-credentials)
+     (throw (ex-info "`get-credentials` parameter must be a function."
+                     (u/sym-map get-credentials))))
    (u/check-protocol protocol)
    (when-not (keyword? role)
      (throw (ex-info "`role` parameter must be a keyword." (u/sym-map role))))
@@ -465,7 +471,7 @@
                                        my-name-maps peer-name-maps
                                        *rpc-id->rpc-info silence-log?))
          client (->CapsuleClient
-                 <get-url <get-credentials *rcv-chan send-chan reconnect-chan
+                 get-url get-credentials *rcv-chan send-chan reconnect-chan
                  rpc-name->req-name msg-name->rec-name
                  msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
                  rcv-queue-size send-queue-size silence-log? <on-reconnect

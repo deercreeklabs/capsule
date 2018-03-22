@@ -17,17 +17,13 @@
 
 (u/configure-logging)
 
-(defn make-<get-gw-url [endpoint]
+(defn make-get-gw-url [endpoint]
   (fn <get-gw-url []
-    (let [ch (ca/chan)]
-      (ca/put! ch (str "ws://localhost:8080/" endpoint))
-      ch)))
+    (str "ws://localhost:8080/" endpoint)))
 
-(defn make-<get-credentials [subject-id credential]
+(defn make-get-credentials [subject-id credential]
   (fn <get-credentials []
-    (let [ch (ca/chan)]
-      (ca/put! ch (u/sym-map subject-id credential))
-      ch)))
+    (u/sym-map subject-id credential)))
 
 (def rpc-timeout #?(:cljs 10000 :clj 1000))
 (def test-timeout #?(:cljs 20000 :clj 2000))
@@ -42,14 +38,14 @@
   ([] (make-client-and-backend nil))
   ([set-greeting-ch]
    (let [set-greeting-ch (or set-greeting-ch (ca/chan))
-         backend (tb/make-backend (make-<get-gw-url "backend")
-                                  (make-<get-credentials "backend" "test")
+         backend (tb/make-backend (make-get-gw-url "backend")
+                                  (make-get-credentials "backend" "test")
                                   {:silence-log? true})
          options {:handlers {:set-greeting (fn [msg metadata]
                                              (ca/put! set-greeting-ch msg))}
                   :silence-log? true}
-         client (cc/make-client (make-<get-gw-url "client")
-                                (make-<get-credentials "client1" "test")
+         client (cc/make-client (make-get-gw-url "client")
+                                (make-get-credentials "client1" "test")
                                 cg-proto :client options)]
      [client backend])))
 
@@ -118,8 +114,8 @@
   (au/test-async
    test-timeout
    (ca/go
-     (let [client (cc/make-client (make-<get-gw-url "client")
-                                  (make-<get-credentials "client1" "test")
+     (let [client (cc/make-client (make-get-gw-url "client")
+                                  (make-get-credentials "client1" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
          (let [msg-ch (cc/<send-msg client :request-greeting-update nil)
@@ -145,11 +141,11 @@
                                                     (ca/put! client2-ch
                                                              msg))}
                          :silence-log? true}
-           client1 (cc/make-client (make-<get-gw-url "client")
-                                   (make-<get-credentials "client1" "test")
+           client1 (cc/make-client (make-get-gw-url "client")
+                                   (make-get-credentials "client1" "test")
                                    cg-proto :client client1-opts)
-           client2 (cc/make-client (make-<get-gw-url "client")
-                                   (make-<get-credentials "client2" "test")
+           client2 (cc/make-client (make-get-gw-url "client")
+                                   (make-get-credentials "client2" "test")
                                    cg-proto :client client2-opts)
            expected-msg "Hello"]
        (try
@@ -185,14 +181,14 @@
                                       (ca/put! client1-conn-count-chan
                                                msg))}
                          :silence-log? true}
-           client0 (cc/make-client (make-<get-gw-url "client")
-                                   (make-<get-credentials "client0" "test")
+           client0 (cc/make-client (make-get-gw-url "client")
+                                   (make-get-credentials "client0" "test")
                                    cg-proto :client client0-opts)
-           client1a (cc/make-client (make-<get-gw-url "client")
-                                    (make-<get-credentials "client1" "test")
+           client1a (cc/make-client (make-get-gw-url "client")
+                                    (make-get-credentials "client1" "test")
                                     cg-proto :client client1-opts)
-           client1b (cc/make-client (make-<get-gw-url "client")
-                                    (make-<get-credentials "client1" "test")
+           client1b (cc/make-client (make-get-gw-url "client")
+                                    (make-get-credentials "client1" "test")
                                     cg-proto :client client1-opts)]
        (try
          (cc/send-msg client1a :request-conn-count nil)
@@ -211,8 +207,8 @@
   (au/test-async
    test-timeout
    (ca/go
-     (let [client (cc/make-client (make-<get-gw-url "client")
-                                  (make-<get-credentials "client0" "test")
+     (let [client (cc/make-client (make-get-gw-url "client")
+                                  (make-get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
          (au/alts? [(cc/<send-msg client :non-existent "arg")
@@ -228,8 +224,8 @@
   (au/test-async
    test-timeout
    (ca/go
-     (let [client (cc/make-client (make-<get-gw-url "client")
-                                  (make-<get-credentials "client0" "test")
+     (let [client (cc/make-client (make-get-gw-url "client")
+                                  (make-get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
          (au/alts? [(cc/send-msg client :non-existent "yo")
@@ -245,8 +241,8 @@
   (au/test-async
    test-timeout
    (ca/go
-     (let [client (cc/make-client (make-<get-gw-url "client")
-                                  (make-<get-credentials "client0" "test")
+     (let [client (cc/make-client (make-get-gw-url "client")
+                                  (make-get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
          (cc/set-handler client :non-existent (constantly nil))
@@ -261,8 +257,8 @@
   (au/test-async
    test-timeout
    (ca/go
-     (let [client (cc/make-client (make-<get-gw-url "client")
-                                  (make-<get-credentials "client0" "test")
+     (let [client (cc/make-client (make-get-gw-url "client")
+                                  (make-get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})
            client-chan (ca/chan)
            handler (fn [msg metadata]
@@ -281,8 +277,8 @@
   (au/test-async
    test-timeout
    (ca/go
-     (let [client (cc/make-client (make-<get-gw-url "client")
-                                  (make-<get-credentials "client0" "test")
+     (let [client (cc/make-client (make-get-gw-url "client")
+                                  (make-get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
          (cc/set-handler client :non-existent (constantly nil))
