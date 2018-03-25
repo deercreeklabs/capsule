@@ -14,16 +14,16 @@
 (def conn-wait-ms-multiplier 1.5)
 (def initial-conn-wait-ms 1000)
 (def max-conn-wait-ms 30000)
+(def get-url-timeout-ms 15000)
 
 (def default-client-options
-  {:default-rpc-timeout-ms 10000
+  {:default-rpc-timeout-ms 15000
    :rcv-queue-size 1000
    :send-queue-size 1000
    :silence-log? false
-   :<on-reconnect (fn [capsule-client]
-                    (ca/go
-                      (infof "Client reconnected.")
-                      nil))})
+   :on-reconnect (fn [capsule-client]
+                     (infof "Client reconnected.")
+                    nil)})
 
 (defprotocol ICapsuleClient
   (<send-msg
@@ -44,9 +44,9 @@
   (<do-auth-w-creds* [this tube-client rcv-chan credentials])
   (<get-credentials* [this])
   (<get-credentials-and-do-auth* [this tube-client rcv-chan])
-  (<do-schema-negotiation-and-auth* [this tube-client rcv-chan url])
   (<do-schema-negotiation* [this tube-client rcv-chan url])
-  (<get-url* [this wait-ms])
+  (<do-auth* [this tube-client rcv-chan])
+  (<get-url* [this])
   (<connect* [this])
   (start-connect-loop* [this])
   (start-gc-loop* [this])
@@ -57,7 +57,7 @@
     [get-url get-credentials *rcv-chan send-chan reconnect-chan
      rpc-name->req-name msg-name->rec-name
      msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
-     rcv-queue-size send-queue-size silence-log? <on-reconnect
+     rcv-queue-size send-queue-size silence-log? on-reconnect
      role peer-role peer-name-maps
      *url->server-fp *server-pcf *rpc-id *tube-client *credentials
      *shutdown? *rpc-id->rpc-info *msg-rec-name->handler]
@@ -149,6 +149,7 @@
         (if-not (= ::u/login-rsp msg-name)
           (do
             (errorf "Got wrong login rsp msg: %s" msg-name)
+            (tc/close tube-client)
             (shutdown this)
             false)
           (let [{:keys [was-successful]} msg]
@@ -171,6 +172,7 @@
                 (recur new-wait-ms)
                 (do
                   (errorf "Authentication timed out. Shutting down.")
+                  (tc/close tube-client)
                   (shutdown this))))
             (if-not success?
               (do
@@ -207,37 +209,34 @@
       (if-let [credentials (au/<? (<get-credentials* this))]
         (if (au/<? (<do-auth-w-creds* this tube-client rcv-chan
                                       credentials))
-          (do
-            (reset! *rcv-chan rcv-chan)
-            (reset! *tube-client tube-client)
-            true)
+          true
           (do
             (errorf "Authentication failed. Shutting down.")
-            (shutdown this)))
+            (tc/close tube-client)
+            (shutdown this)
+            false))
         (do
           (errorf "<get-credentials* failed. Shutting down.")
-          (shutdown this)))))
+          (tc/close tube-client)
+          (shutdown this)
+          false))))
 
-  (<do-schema-negotiation-and-auth* [this tube-client rcv-chan url]
+  (<do-auth* [this tube-client rcv-chan]
     (au/go
-      (if @*shutdown?
-        (tc/close tube-client)
-        (do
-          (au/<? (<do-schema-negotiation* this tube-client rcv-chan url))
-          (if-let [credentials @*credentials] ;; Try cached creds first
-            (if (au/<? (<do-auth-w-creds* this tube-client rcv-chan
-                                          credentials))
-              true
-              (<get-credentials-and-do-auth* this tube-client rcv-chan))
-            (<get-credentials-and-do-auth* this tube-client rcv-chan))))))
+      (if-let [credentials @*credentials] ;; Try cached creds first
+        (if (au/<? (<do-auth-w-creds* this tube-client rcv-chan
+                                      credentials))
+          true
+          (<get-credentials-and-do-auth* this tube-client rcv-chan))
+        (<get-credentials-and-do-auth* this tube-client rcv-chan))))
 
-  (<get-url* [this wait-ms]
+  (<get-url* [this]
     (ca/go
       (try
         (let [url-ret (get-url)]
           (if-not (au/channel? url-ret)
             url-ret
-            (let [timeout-ch (ca/timeout wait-ms)
+            (let [timeout-ch (ca/timeout get-url-timeout-ms)
                   [url ch] (au/alts? [url-ret timeout-ch])]
               (if (= timeout-ch ch)
                 false
@@ -255,7 +254,7 @@
                 new-wait-ms (-> (* wait-ms conn-wait-ms-multiplier)
                                 (min max-conn-wait-ms)
                                 (* rand-mult))]
-            (let [url (ca/<! (<get-url* this wait-ms))]
+            (let [url (ca/<! (<get-url* this))]
               (if-not url
                 (do
                   (ca/<! (ca/timeout wait-ms))
@@ -287,11 +286,18 @@
                         tube-client (au/<? (tc/<make-tube-client
                                             url wait-ms opts))]
                     (if tube-client
-                      (au/<? (<do-schema-negotiation-and-auth* this tube-client
-                                                               rcv-chan url))
                       (do
-                        (when-not silence-log?
-                          (debugf "make-tube-client failed."))
+                        (au/<? (<do-schema-negotiation* this tube-client
+                                                        rcv-chan url))
+                        (if-not (au/<? (<do-auth* this tube-client rcv-chan))
+                          (do
+                            (tc/close tube-client)
+                            false)
+                          (do
+                            (reset! *rcv-chan rcv-chan)
+                            (reset! *tube-client tube-client)
+                            true)))
+                      (do
                         (ca/<! (ca/timeout wait-ms))
                         (recur new-wait-ms))))))))))))
 
@@ -305,7 +311,7 @@
             (when (and (= reconnect-chan ch) reconnect?)
               (let [success? (au/<? (<connect* this))]
                 (if success?
-                  (<on-reconnect this)
+                  (on-reconnect this)
                   (when-not @*shutdown?
                     (errorf "Client failed to reconnect. Shutting down.")
                     (shutdown this)))))))
@@ -362,19 +368,19 @@
                 (loop []
                   (when (not @*shutdown?)
                     (if-let [tube-client @*tube-client]
+                      (tc/send tube-client (l/serialize msgs-union-schema
+                                                        [msg-rec-name msg]))
                       (do
-                        (tc/send tube-client (l/serialize msgs-union-schema
-                                                          [msg-rec-name msg])))
-                      (when failure-time-ms
-                        (if (> (u/get-current-time-ms) failure-time-ms)
-                          (when failure-cb
-                            (failure-cb
-                             (ex-info
-                              "Send timed out waiting for connection."
-                              (u/sym-map msg-info))))
-                          (do
-                            (ca/<! (ca/timeout 100))
-                            (recur)))))))))))
+                        (when failure-time-ms
+                          (if (> (u/get-current-time-ms) failure-time-ms)
+                            (when failure-cb
+                              (failure-cb
+                               (ex-info
+                                "Send timed out waiting for connection."
+                                (u/sym-map msg-info))))
+                            (do
+                              (ca/<! (ca/timeout 100))
+                              (recur))))))))))))
         (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Unexpected error in send loop: %s"
                   (lu/get-exception-msg-and-stacktrace e))))))
@@ -436,7 +442,7 @@
                  rcv-queue-size
                  send-queue-size
                  silence-log?
-                 <on-reconnect
+                 on-reconnect
                  handlers]} opts
          *rcv-chan (atom nil)
          send-chan (ca/chan send-queue-size)
@@ -462,7 +468,7 @@
                  get-url get-credentials *rcv-chan send-chan reconnect-chan
                  rpc-name->req-name msg-name->rec-name
                  msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
-                 rcv-queue-size send-queue-size silence-log? <on-reconnect
+                 rcv-queue-size send-queue-size silence-log? on-reconnect
                  role peer-role peer-name-maps
                  *url->server-fp *server-pcf *rpc-id *tube-client *credentials
                  *shutdown? *rpc-id->rpc-info *msg-rec-name->handler)]
