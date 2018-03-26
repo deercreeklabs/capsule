@@ -306,7 +306,6 @@
                    *shutdown? *msg-rec-name->handler)]
      (swap! *msg-rec-name->handler assoc ::u/login-req
             (partial <handle-login-req* endpoint))
-
      (doseq [[msg-name-kw handler] handlers]
        (set-handler endpoint msg-name-kw handler))
      (start-gc-loop* endpoint)

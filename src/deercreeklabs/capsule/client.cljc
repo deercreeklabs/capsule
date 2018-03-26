@@ -207,14 +207,27 @@
   (<get-credentials-and-do-auth* [this tube-client rcv-chan]
     (au/go
       (if-let [credentials (au/<? (<get-credentials* this))]
-        (if (au/<? (<do-auth-w-creds* this tube-client rcv-chan
-                                      credentials))
-          true
-          (do
-            (errorf "Authentication failed. Shutting down.")
-            (tc/close tube-client)
-            (shutdown this)
-            false))
+        (do
+          (when (not (map? credentials))
+            (throw (ex-info (str "get-credentials did not return a map. Got "
+                                 credentials)
+                            (u/sym-map credentials))))
+          (when (not (:subject-id credentials))
+            (throw (ex-info (str "get-credentials returned a map without a "
+                                 "valid :subject-id. Got: " credentials)
+                            (u/sym-map credentials))))
+          (when (not (:credential credentials))
+            (throw (ex-info (str "get-credentials returned a map without a "
+                                 "valid :credential. Got: " credentials)
+                            (u/sym-map credentials))))
+          (if (au/<? (<do-auth-w-creds* this tube-client rcv-chan
+                                        credentials))
+            true
+            (do
+              (errorf "Authentication failed. Shutting down.")
+              (tc/close tube-client)
+              (shutdown this)
+              false)))
         (do
           (errorf "<get-credentials* failed. Shutting down.")
           (tc/close tube-client)
@@ -223,12 +236,11 @@
 
   (<do-auth* [this tube-client rcv-chan]
     (au/go
-      (if-let [credentials @*credentials] ;; Try cached creds first
-        (if (au/<? (<do-auth-w-creds* this tube-client rcv-chan
-                                      credentials))
-          true
-          (<get-credentials-and-do-auth* this tube-client rcv-chan))
-        (<get-credentials-and-do-auth* this tube-client rcv-chan))))
+      (if-not @*credentials
+        (au/<? (<get-credentials-and-do-auth* this tube-client rcv-chan))
+        (or (au/<? (<do-auth-w-creds* this tube-client rcv-chan @*credentials))
+            (au/<? (<get-credentials-and-do-auth* this tube-client
+                                                  rcv-chan))))))
 
   (<get-url* [this]
     (ca/go
@@ -266,8 +278,8 @@
                     (ca/<! (ca/timeout wait-ms))
                     (recur new-wait-ms))
                   (let [_ (when-not silence-log?
-                            (debugf (str "Got url: %s. Attempting "
-                                         "websocket connection.") url))
+                            (infof (str "Got url: %s. Attempting "
+                                        "websocket connection.") url))
                         rcv-chan (ca/chan rcv-queue-size)
                         opts {:on-disconnect
                               (fn [conn code reason]
