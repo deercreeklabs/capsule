@@ -51,6 +51,8 @@
 (def Callback (s/=> s/Any s/Any))
 (def ClientOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
+   (s/optional-key :get-credentials-timeout-ms) s/Int
+   (s/optional-key :get-url-timeout-ms) s/Int
    (s/optional-key :rcv-queue-size) s/Int
    (s/optional-key :send-queue-size) s/Int
    (s/optional-key :silence-log?) s/Bool

@@ -14,10 +14,11 @@
 (def conn-wait-ms-multiplier 1.5)
 (def initial-conn-wait-ms 1000)
 (def max-conn-wait-ms 30000)
-(def get-url-timeout-ms 15000)
 
 (def default-client-options
   {:default-rpc-timeout-ms 15000
+   :get-credentials-timeout-ms 15000
+   :get-url-timeout-ms 15000
    :rcv-queue-size 1000
    :send-queue-size 1000
    :silence-log? false
@@ -54,8 +55,8 @@
   (start-rcv-loop* [this]))
 
 (defrecord CapsuleClient
-    [get-url get-credentials *rcv-chan send-chan reconnect-chan
-     rpc-name->req-name msg-name->rec-name
+    [get-url get-url-timeout-ms get-credentials get-credentials-timeout-ms
+     *rcv-chan send-chan reconnect-chan rpc-name->req-name msg-name->rec-name
      msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
      rcv-queue-size send-queue-size silence-log? on-reconnect
      role peer-role peer-name-maps
@@ -161,44 +162,33 @@
 
   (<do-auth-w-creds* [this tube-client rcv-chan credentials]
     (au/go
-      (loop [wait-ms initial-conn-wait-ms]
-        (let [timeout-ch (ca/timeout default-rpc-timeout-ms)
-              login-ch (<do-login* this tube-client rcv-chan credentials)
-              [success? ch] (au/alts? [timeout-ch login-ch])]
-          (if (not= login-ch ch)
-            (let [rand-mult (+ 0.5 (rand))
-                  new-wait-ms (* wait-ms conn-wait-ms-multiplier rand-mult)]
-              (if (< new-wait-ms max-conn-wait-ms)
-                (recur new-wait-ms)
-                (do
-                  (errorf "Authentication timed out. Shutting down.")
-                  (tc/close tube-client)
-                  (shutdown this))))
-            (if-not success?
-              (do
-                (reset! *credentials nil)
-                false)
-              (do
-                (reset! *credentials credentials)
-                true)))))))
+      (let [timeout-ch (ca/timeout default-rpc-timeout-ms)
+            login-ch (<do-login* this tube-client rcv-chan credentials)
+            [success? ch] (au/alts? [timeout-ch login-ch])]
+        (if (= timeout-ch ch)
+          (do
+            (errorf "Authentication timed out. Shutting down.")
+            (tc/close tube-client)
+            (shutdown this))
+          (if-not success?
+            (do
+              (reset! *credentials nil)
+              false)
+            (do
+              (reset! *credentials credentials)
+              true))))))
 
   (<get-credentials* [this]
     (ca/go
       (try
-        (loop [wait-ms initial-conn-wait-ms]
-          (let [creds-ret (get-credentials)]
-            (if-not (au/channel? creds-ret)
-              creds-ret
-              (let [timeout-ch (ca/timeout wait-ms)
-                    [credentials ch] (au/alts? [creds-ret timeout-ch])]
-                (if (not= timeout-ch ch)
-                  credentials
-                  (let [rand-mult (+ 0.5 (rand))
-                        new-wait-ms (* wait-ms conn-wait-ms-multiplier
-                                       rand-mult)]
-                    (if (< new-wait-ms max-conn-wait-ms)
-                      (recur new-wait-ms)
-                      false)))))))
+        (let [creds-ret (get-credentials)]
+          (if-not (au/channel? creds-ret)
+            creds-ret
+            (let [timeout-ch (ca/timeout get-credentials-timeout-ms)
+                  [credentials ch] (au/alts? [creds-ret timeout-ch])]
+              (if (= timeout-ch ch)
+                false
+                credentials))))
         (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Error in <get-credentials: %s"
                   (lu/get-exception-msg-and-stacktrace e))
@@ -451,6 +441,8 @@
                      (u/sym-map options))))
    (let [opts (merge default-client-options options)
          {:keys [default-rpc-timeout-ms
+                 get-credentials-timeout-ms
+                 get-url-timeout-ms
                  rcv-queue-size
                  send-queue-size
                  silence-log?
@@ -477,7 +469,8 @@
                                        my-name-maps peer-name-maps
                                        *rpc-id->rpc-info silence-log?))
          client (->CapsuleClient
-                 get-url get-credentials *rcv-chan send-chan reconnect-chan
+                 get-url get-url-timeout-ms get-credentials
+                 get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
                  rpc-name->req-name msg-name->rec-name
                  msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
                  rcv-queue-size send-queue-size silence-log? on-reconnect
