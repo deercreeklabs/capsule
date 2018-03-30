@@ -23,8 +23,8 @@
    :send-queue-size 1000
    :silence-log? false
    :on-reconnect (fn [capsule-client]
-                     (infof "Client reconnected.")
-                    nil)})
+                   (infof "Client reconnected.")
+                   nil)})
 
 (defprotocol ICapsuleClient
   (<send-msg
