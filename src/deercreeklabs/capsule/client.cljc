@@ -150,8 +150,6 @@
         (if-not (= ::u/login-rsp msg-name)
           (do
             (errorf "Got wrong login rsp msg: %s" msg-name)
-            (tc/close tube-client)
-            (shutdown this)
             false)
           (let [{:keys [was-successful]} msg]
             (when-not silence-log?
@@ -167,9 +165,8 @@
             [success? ch] (au/alts? [timeout-ch login-ch])]
         (if (= timeout-ch ch)
           (do
-            (errorf "Authentication timed out. Shutting down.")
-            (tc/close tube-client)
-            (shutdown this))
+            (errorf "Authentication timed out.")
+            false)
           (if-not success?
             (do
               (reset! *credentials nil)
@@ -214,14 +211,10 @@
                                         credentials))
             true
             (do
-              (errorf "Authentication failed. Shutting down.")
-              (tc/close tube-client)
-              (shutdown this)
+              (errorf "Authentication failed.")
               false)))
         (do
-          (errorf "<get-credentials* failed. Shutting down.")
-          (tc/close tube-client)
-          (shutdown this)
+          (errorf "<get-credentials* failed.")
           false))))
 
   (<do-auth* [this tube-client rcv-chan]
@@ -287,21 +280,26 @@
                                         (ca/put! rcv-chan data))}
                         tube-client (au/<? (tc/<make-tube-client
                                             url wait-ms opts))]
-                    (if tube-client
-                      (do
-                        (au/<? (<do-schema-negotiation* this tube-client
-                                                        rcv-chan url))
-                        (if-not (au/<? (<do-auth* this tube-client rcv-chan))
-                          (do
-                            (tc/close tube-client)
-                            false)
-                          (do
-                            (reset! *rcv-chan rcv-chan)
-                            (reset! *tube-client tube-client)
-                            true)))
-                      (do
+                    (if-not tube-client
+                      (when-not @*shutdown?
                         (ca/<! (ca/timeout wait-ms))
-                        (recur new-wait-ms))))))))))))
+                        (recur new-wait-ms))
+                      (if @*shutdown?
+                        (do
+                          (tc/close tube-client)
+                          false)
+                        (do
+                          (au/<? (<do-schema-negotiation* this tube-client
+                                                          rcv-chan url))
+                          (if-not (au/<? (<do-auth* this tube-client rcv-chan))
+                            (do
+                              (tc/close tube-client)
+                              (shutdown this)
+                              false)
+                            (do
+                              (reset! *rcv-chan rcv-chan)
+                              (reset! *tube-client tube-client)
+                              true))))))))))))))
 
   (start-connect-loop* [this]
     (ca/go
