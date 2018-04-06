@@ -48,8 +48,8 @@
   (<do-schema-negotiation* [this tube-client rcv-chan url])
   (<do-auth* [this tube-client rcv-chan])
   (<get-url* [this])
-  (<connect* [this])
-  (start-connect-loop* [this])
+  (<connect* [this <make-ws-client])
+  (start-connect-loop* [this <make-ws-client])
   (start-gc-loop* [this])
   (start-send-loop* [this])
   (start-rcv-loop* [this]))
@@ -241,7 +241,7 @@
                   (lu/get-exception-msg-and-stacktrace e))
           false))))
 
-  (<connect* [this]
+  (<connect* [this <make-ws-client]
     (au/go
       (loop [wait-ms initial-conn-wait-ms]
         (when-not @*shutdown?
@@ -278,6 +278,9 @@
                                     (ca/put! reconnect-chan true))))
                               :on-rcv (fn on-rcv [conn data]
                                         (ca/put! rcv-chan data))}
+                        opts (cond-> opts
+                               <make-ws-client (assoc :<make-ws-client
+                                                      <make-ws-client))
                         tube-client (au/<? (tc/<make-tube-client
                                             url wait-ms opts))]
                     (if-not tube-client
@@ -301,15 +304,15 @@
                               (reset! *tube-client tube-client)
                               true))))))))))))))
 
-  (start-connect-loop* [this]
+  (start-connect-loop* [this <make-ws-client]
     (ca/go
       (try
-        (au/<? (<connect* this))
+        (au/<? (<connect* this <make-ws-client))
         (while (not @*shutdown?)
           (let [[reconnect? ch] (ca/alts! [reconnect-chan
                                            (ca/timeout initial-conn-wait-ms)])]
             (when (and (= reconnect-chan ch) reconnect?)
-              (let [success? (au/<? (<connect* this))]
+              (let [success? (au/<? (<connect* this <make-ws-client))]
                 (if success?
                   (on-reconnect this)
                   (when-not @*shutdown?
@@ -445,7 +448,8 @@
                  send-queue-size
                  silence-log?
                  on-reconnect
-                 handlers]} opts
+                 handlers
+                 <make-ws-client]} opts
          *rcv-chan (atom nil)
          send-chan (ca/chan send-queue-size)
          reconnect-chan (ca/chan)
@@ -477,7 +481,7 @@
                  *shutdown? *rpc-id->rpc-info *msg-rec-name->handler)]
      (doseq [[msg-name-kw handler] handlers]
        (set-handler client msg-name-kw handler))
-     (start-connect-loop* client)
+     (start-connect-loop* client <make-ws-client)
      (start-gc-loop* client)
      (start-rcv-loop* client)
      (start-send-loop* client)

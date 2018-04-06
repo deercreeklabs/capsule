@@ -57,7 +57,8 @@
    (s/optional-key :send-queue-size) s/Int
    (s/optional-key :silence-log?) s/Bool
    (s/optional-key :<on-reconnect) Callback
-   (s/optional-key :handlers) HandlerMap})
+   (s/optional-key :handlers) HandlerMap
+   (s/optional-key :<make-ws-client) (s/=> s/Any)})
 (def EndpointOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
    (s/optional-key :silence-log?) s/Bool

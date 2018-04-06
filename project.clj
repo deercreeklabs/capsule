@@ -1,10 +1,11 @@
 (def compiler-defaults
-  {:npm-deps {:websocket "1.0.25"}
+  {:npm-deps {:pako "1.0.6"
+              :websocket "1.0.25"}
    :install-deps true
    :parallel-build true
    :static-fns true
-   ;;:pseudo-names true
-   ;;:pretty-print true
+   ;; :pseudo-names true
+   ;; :pretty-print true
    ;; :infer-externs true
    :externs ["capsule_externs.js"]})
 
@@ -62,14 +63,14 @@
      [lein-cljsbuild "1.1.7"
       :exclusions [org.apache.commons/commons-compress org.clojure/clojure]]
      [lein-cloverage "1.0.10" :exclusions [org.clojure/clojure]]
-     [lein-doo "0.1.9"
+     [lein-doo "0.1.10"
       :exclusions [org.clojure/clojure org.clojure/clojurescript]]
      [lein-npm "0.6.2" :exclusions [com.fasterxml.jackson.core/jackson-core]]
      ;; Because of confusion with a defunct project also called
      ;; lein-release, we exclude lein-release from lein-ancient.
      [lein-release "1.0.9" :upgrade false :exclusions [org.clojure/clojure]]]
     :dependencies
-    [[doo "0.1.9"]
+    [[doo "0.1.10"]
      [org.clojure/tools.namespace "0.2.11"]]}}
 
   :npm {:devDependencies [[karma "1.7.1"]
@@ -83,18 +84,18 @@
    [binaryage/oops "0.5.8"]
    [com.fzakaria/slf4j-timbre "0.3.8"]
    [com.taoensso/timbre "4.10.0"]
-   [deercreeklabs/async-utils "0.1.8"]
-   [deercreeklabs/baracus "0.1.3"]
-   [deercreeklabs/lancaster "0.1.18"
+   [deercreeklabs/async-utils "0.1.9"]
+   [deercreeklabs/baracus "0.1.4"]
+   [deercreeklabs/lancaster "0.1.19"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
-   [deercreeklabs/log-utils "0.1.3"]
-   [deercreeklabs/tube "0.1.26" :exclusions [org.slf4j/slf4j-api]]
+   [deercreeklabs/log-utils "0.1.4"]
+   [deercreeklabs/tube "0.1.27" :exclusions [org.slf4j/slf4j-api]]
    [org.clojure/clojure "1.9.0"]
-   [org.clojure/clojurescript "1.9.946"]
+   [org.clojure/clojurescript "1.10.238"]
    [org.clojure/core.async "0.4.474"]
    [primitive-math "0.1.6"]
-   [prismatic/schema "1.1.7"]]
+   [prismatic/schema "1.1.9"]]
 
   :test-selectors {:default (constantly true)
                    :the-one :the-one
