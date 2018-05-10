@@ -86,7 +86,7 @@
    [com.taoensso/timbre "4.10.0"]
    [deercreeklabs/async-utils "0.1.9"]
    [deercreeklabs/baracus "0.1.5"]
-   [deercreeklabs/lancaster "0.1.24"
+   [deercreeklabs/lancaster "0.1.25"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.5"]
