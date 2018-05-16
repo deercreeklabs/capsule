@@ -81,12 +81,12 @@
 
   :dependencies
   [[bidi "2.1.3" :exclusions [prismatic/schema ring/ring-core]]
-   [binaryage/oops "0.6.1"]
+   [binaryage/oops "0.6.2"]
    [com.fzakaria/slf4j-timbre "0.3.8"]
    [com.taoensso/timbre "4.10.0"]
    [deercreeklabs/async-utils "0.1.9"]
    [deercreeklabs/baracus "0.1.5"]
-   [deercreeklabs/lancaster "0.1.26"
+   [deercreeklabs/lancaster "0.1.27"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.5"]
