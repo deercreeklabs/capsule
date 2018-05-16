@@ -102,13 +102,13 @@
      (let [[client backend] (make-client-and-backend)]
        (try
          (let [arg [1 2 3]
-               rpc-ch (cc/<send-msg client :add arg)
+               rpc-ch (u/<send-msg client :add arg)
                [v ch] (au/alts? [rpc-ch (ca/timeout rpc-timeout)])]
            (is (= rpc-ch ch))
            (is (= 6.0 v)))
          (finally
-           (cc/shutdown client)
-           (cc/shutdown backend)))))))
+           (u/shutdown client)
+           (u/shutdown backend)))))))
 
 (deftest test-one-way-w-channel
   (au/test-async
@@ -118,12 +118,12 @@
                                   (make-get-credentials "client1" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
-         (let [msg-ch (cc/<send-msg client :request-greeting-update nil)
+         (let [msg-ch (u/<send-msg client :request-greeting-update nil)
                [v ch] (au/alts? [msg-ch (ca/timeout 1000)])]
            (is (= msg-ch ch))
            (is (nil? v)))
          (finally
-           (cc/shutdown client)))))))
+           (u/shutdown client)))))))
 
 (deftest test-send-msg-to-all-conns
   (au/test-async
@@ -149,7 +149,7 @@
                                    cg-proto :client client2-opts)
            expected-msg "Hello"]
        (try
-         (cc/<send-msg client2 :request-greeting-update nil)
+         (u/<send-msg client2 :request-greeting-update nil)
          (let [[v ch] (au/alts? [client0-ch (ca/timeout rpc-timeout)])]
            (is (= client0-ch ch))
            (is (= expected-msg v)))
@@ -160,10 +160,10 @@
            (is (= client2-ch ch))
            (is (= expected-msg v)))
          (finally
-           (cc/shutdown client0)
-           (cc/shutdown client1)
-           (cc/shutdown client2)
-           (cc/shutdown backend)))))))
+           (u/shutdown client0)
+           (u/shutdown client1)
+           (u/shutdown client2)
+           (u/shutdown backend)))))))
 
 (deftest test-send-msg-to-subject-conns
   (au/test-async
@@ -191,7 +191,7 @@
                                     (make-get-credentials "client1" "test")
                                     cg-proto :client client1-opts)]
        (try
-         (cc/send-msg client1a :request-conn-count nil)
+         (u/send-msg client1a :request-conn-count nil)
          (dotimes [i 2]
            (let [[v ch] (au/alts? [client0-conn-count-chan
                                    client1-conn-count-chan
@@ -199,9 +199,9 @@
              (is (= client1-conn-count-chan ch))
              (is (= 2 v))))
          (finally
-           (cc/shutdown client0)
-           (cc/shutdown client1a)
-           (cc/shutdown client1b)))))))
+           (u/shutdown client0)
+           (u/shutdown client1a)
+           (u/shutdown client1b)))))))
 
 (deftest test-non-existent-rpc
   (au/test-async
@@ -211,14 +211,14 @@
                                   (make-get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
-         (au/alts? [(cc/<send-msg client :non-existent "arg")
+         (au/alts? [(u/<send-msg client :non-existent "arg")
                     (ca/timeout rpc-timeout)])
          (is (= :did-not-throw :should-not-get-here))
          (catch #?(:clj Exception :cljs js/Error) e
            (is (re-find #"is not a sender for msg `:non-existent`"
                         (lu/get-exception-msg e))))
          (finally
-           (cc/shutdown client)))))))
+           (u/shutdown client)))))))
 
 (deftest test-non-existent-msg
   (au/test-async
@@ -228,14 +228,14 @@
                                   (make-get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
-         (au/alts? [(cc/send-msg client :non-existent "yo")
+         (au/alts? [(u/send-msg client :non-existent "yo")
                     (ca/timeout rpc-timeout)])
          (is (= :did-not-throw :should-not-get-here))
          (catch #?(:clj Exception :cljs js/Error) e
            (is (re-find #"is not a sender for msg `:non-existent`"
                         (lu/get-exception-msg e))))
          (finally
-           (cc/shutdown client)))))))
+           (u/shutdown client)))))))
 
 (deftest test-set-handler-for-non-existent-rpc
   (au/test-async
@@ -245,13 +245,13 @@
                                   (make-get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
-         (cc/set-handler client :non-existent (constantly nil))
+         (u/set-handler client :non-existent (constantly nil))
          (is (= :did-not-throw :should-not-get-here))
          (catch #?(:clj Exception :cljs js/Error) e
            (is (re-find #"is not a sender for msg `:non-existent`"
                         (lu/get-exception-msg e))))
          (finally
-           (cc/shutdown client)))))))
+           (u/shutdown client)))))))
 
 (deftest test-set-msg-handler
   (au/test-async
@@ -265,13 +265,13 @@
                      (when (nil? msg)
                        (ca/put! client-chan :nil)))]
        (try
-         (cc/set-handler client :pong handler)
-         (cc/send-msg client :ping nil)
+         (u/set-handler client :pong handler)
+         (u/send-msg client :ping nil)
          (let [[v ch] (au/alts? [client-chan (ca/timeout rpc-timeout)])]
            (is (= client-chan ch))
            (is (= :nil v)))
          (finally
-           (cc/shutdown client)))))))
+           (u/shutdown client)))))))
 
 (deftest test-set-handler-for-non-existent-msg
   (au/test-async
@@ -281,10 +281,10 @@
                                   (make-get-credentials "client0" "test")
                                   cg-proto :client {:silence-log? true})]
        (try
-         (cc/set-handler client :non-existent (constantly nil))
+         (u/set-handler client :non-existent (constantly nil))
          (is (= :did-not-throw :should-not-get-here))
          (catch #?(:clj Exception :cljs js/Error) e
            (is (re-find #"is not a sender for msg `:non-existent`"
                         (lu/get-exception-msg e))))
          (finally
-           (cc/shutdown client)))))))
+           (u/shutdown client)))))))

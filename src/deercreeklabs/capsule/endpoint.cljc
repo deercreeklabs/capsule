@@ -135,8 +135,8 @@
                 (u/sym-map role msg-name-kw arg)))))
 
   (set-handler [this msg-name-kw handler]
-    (u/set-handler msg-name-kw handler peer-name-maps *msg-rec-name->handler
-                   peer-role))
+    (u/set-handler* msg-name-kw handler peer-name-maps *msg-rec-name->handler
+                    peer-role))
 
   (send-msg-to-subject-conns [this subject-id msg-name-kw msg]
     (doseq [conn-id (@*subject-id->conn-ids subject-id)]

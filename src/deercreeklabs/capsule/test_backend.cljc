@@ -18,7 +18,7 @@
   (apply - arg))
 
 (defn handle-request-greeting-update [client msg metadata]
-  (cc/send-msg client :set-greeting greeting))
+  (u/send-msg client :set-greeting greeting))
 
 (defn make-backend
   ([<get-gw-url <get-credentials]
@@ -30,8 +30,8 @@
                                   :backend options)
                   (cc/make-client <get-gw-url <get-credentials protocol
                                   :backend))]
-     (cc/set-handler client :add handle-add)
-     (cc/set-handler client :subtract handle-subtract)
-     (cc/set-handler client :request-greeting-update
-                     (partial handle-request-greeting-update client))
+     (u/set-handler client :add handle-add)
+     (u/set-handler client :subtract handle-subtract)
+     (u/set-handler client :request-greeting-update
+                    (partial handle-request-greeting-update client))
      client)))

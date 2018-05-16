@@ -26,18 +26,6 @@
                    (infof "Client reconnected.")
                    nil)})
 
-(defprotocol ICapsuleClient
-  (<send-msg
-    [this msg-name-kw arg]
-    [this msg-name-kw arg timeout-ms])
-  (send-msg
-    [this msg-name-kw arg]
-    [this msg-name-kw arg timeout-ms]
-    [this msg-name-kw arg success-cb failure-cb]
-    [this msg-name-kw arg success-cb failure-cb timeout-ms])
-  (set-handler [this msg-name-kw handler])
-  (shutdown [this]))
-
 (defprotocol ICapsuleClientInternals
   (send-rpc* [this msg-name-kw arg success-cb failure-cb timeout-ms])
   (send-msg* [this msg-name-kw msg timeout-ms])
@@ -63,9 +51,9 @@
      *url->server-fp *server-pcf *rpc-id *tube-client *credentials
      *shutdown? *rpc-id->rpc-info *msg-rec-name->handler]
 
-  ICapsuleClient
+  u/ICapsuleClient
   (<send-msg [this msg-name-kw arg]
-    (<send-msg this msg-name-kw arg default-rpc-timeout-ms))
+    (u/<send-msg this msg-name-kw arg default-rpc-timeout-ms))
 
   (<send-msg [this msg-name-kw arg timeout-ms]
     (let [ch (ca/chan)
@@ -73,18 +61,18 @@
                (if (nil? arg)
                  (ca/close! ch)
                  (ca/put! ch arg)))]
-      (send-msg this msg-name-kw arg cb cb timeout-ms)
+      (u/send-msg this msg-name-kw arg cb cb timeout-ms)
       ch))
 
   (send-msg [this msg-name-kw arg]
-    (send-msg this msg-name-kw arg default-rpc-timeout-ms))
+    (u/send-msg this msg-name-kw arg default-rpc-timeout-ms))
 
   (send-msg [this msg-name-kw arg timeout-ms]
-    (send-msg this msg-name-kw arg nil nil timeout-ms))
+    (u/send-msg this msg-name-kw arg nil nil timeout-ms))
 
   (send-msg [this msg-name-kw arg success-cb failure-cb]
-    (send-msg this msg-name-kw arg success-cb failure-cb
-              default-rpc-timeout-ms))
+    (u/send-msg this msg-name-kw arg success-cb failure-cb
+                default-rpc-timeout-ms))
 
   (send-msg [this msg-name-kw arg success-cb failure-cb timeout-ms]
     (when @*shutdown?
@@ -106,8 +94,8 @@
                 (u/sym-map role msg-name-kw arg)))))
 
   (set-handler [this msg-name-kw handler]
-    (u/set-handler msg-name-kw handler peer-name-maps *msg-rec-name->handler
-                   peer-role))
+    (u/set-handler* msg-name-kw handler peer-name-maps *msg-rec-name->handler
+                    peer-role))
 
   (shutdown [this]
     (reset! *shutdown? true)
@@ -297,7 +285,7 @@
                           (if-not (au/<? (<do-auth* this tube-client rcv-chan))
                             (do
                               (tc/close tube-client)
-                              (shutdown this)
+                              (u/shutdown this)
                               false)
                             (do
                               (reset! *rcv-chan rcv-chan)
@@ -317,11 +305,11 @@
                   (on-reconnect this)
                   (when-not @*shutdown?
                     (errorf "Client failed to reconnect. Shutting down.")
-                    (shutdown this)))))))
+                    (u/shutdown this)))))))
         (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Unexpected error in connect loop: %s"
                   (lu/get-exception-msg-and-stacktrace e))
-          (shutdown this)))))
+          (u/shutdown this)))))
 
   (<do-schema-negotiation* [this tube-client rcv-chan url]
     (ca/go
@@ -417,7 +405,7 @@
             (ca/<! (ca/timeout 1000))))))))
 
 
-(s/defn make-client :- (s/protocol ICapsuleClient)
+(s/defn make-client :- (s/protocol u/ICapsuleClient)
   ([get-url :- u/GetURLFn
     get-credentials :- u/GetCredentialsFn
     protocol :- u/Protocol
@@ -480,7 +468,7 @@
                  *url->server-fp *server-pcf *rpc-id *tube-client *credentials
                  *shutdown? *rpc-id->rpc-info *msg-rec-name->handler)]
      (doseq [[msg-name-kw handler] handlers]
-       (set-handler client msg-name-kw handler))
+       (u/set-handler client msg-name-kw handler))
      (start-connect-loop* client <make-ws-client)
      (start-gc-loop* client)
      (start-rcv-loop* client)
