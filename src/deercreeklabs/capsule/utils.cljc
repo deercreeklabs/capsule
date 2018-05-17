@@ -17,19 +17,6 @@
 #?(:cljs
    (set! *warn-on-infer* true))
 
-(defprotocol ICapsuleClient
-  (<send-msg
-    [this msg-name-kw arg]
-    [this msg-name-kw arg timeout-ms])
-  (send-msg
-    [this msg-name-kw arg]
-    [this msg-name-kw arg timeout-ms]
-    [this msg-name-kw arg success-cb failure-cb]
-    [this msg-name-kw arg success-cb failure-cb timeout-ms])
-  (set-handler [this msg-name-kw handler])
-  (shutdown [this]))
-
-
 (def Nil (s/eq nil))
 (def LancasterSchema (s/pred l/schema?))
 (def MsgName s/Keyword)
@@ -61,6 +48,7 @@
    :msgs {MsgName {(s/required-key :arg) LancasterSchema
                    (s/optional-key :ret) LancasterSchema
                    (s/required-key :sender) Role}}})
+(def CapsuleClient s/Any) ;; Avoid circular dependency w/ client.cljc
 (def ClientOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
    (s/optional-key :get-credentials-timeout-ms) s/Int
@@ -68,7 +56,7 @@
    (s/optional-key :rcv-queue-size) s/Int
    (s/optional-key :send-queue-size) s/Int
    (s/optional-key :silence-log?) s/Bool
-   (s/optional-key :on-reconnect) (s/=> s/Any (s/protocol ICapsuleClient))
+   (s/optional-key :on-reconnect) (s/=> s/Any CapsuleClient)
    (s/optional-key :handlers) HandlerMap
    (s/optional-key :<make-ws-client) (s/=> s/Any)})
 (def EndpointOptions
@@ -336,8 +324,8 @@
            (fn [msg metadata]
              (handler (:arg msg) metadata)))))
 
-(defn set-handler* [msg-name-kw handler peer-name-maps *msg-rec-name->handler
-                    peer-role]
+(defn set-handler [msg-name-kw handler peer-name-maps *msg-rec-name->handler
+                   peer-role]
   (cond
     ((:rpc-name->req-name peer-name-maps) msg-name-kw)
     (set-rpc-handler msg-name-kw handler peer-name-maps
