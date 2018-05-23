@@ -248,7 +248,9 @@
           (let [rand-mult (+ 0.5 (rand))
                 new-wait-ms (-> (* wait-ms conn-wait-ms-multiplier)
                                 (min max-conn-wait-ms)
-                                (* rand-mult))]
+                                (* rand-mult)
+                                (Math/floor)
+                                (int))]
             (let [url (ca/<! (<get-url* this))]
               (if-not url
                 (do
