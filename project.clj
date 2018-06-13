@@ -86,11 +86,11 @@
    [com.taoensso/timbre "4.10.0"]
    [deercreeklabs/async-utils "0.1.9"]
    [deercreeklabs/baracus "0.1.6"]
-   [deercreeklabs/lancaster "0.1.36"
+   [deercreeklabs/lancaster "0.1.37"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
-   [deercreeklabs/log-utils "0.1.5"]
-   [deercreeklabs/tube "0.1.28" :exclusions [org.slf4j/slf4j-api]]
+   [deercreeklabs/log-utils "0.1.6"]
+   [deercreeklabs/tube "0.1.29" :exclusions [org.slf4j/slf4j-api]]
    [org.clojure/clojure "1.9.0"]
    [org.clojure/clojurescript "1.10.238"]
    [org.clojure/core.async "0.4.474"]
