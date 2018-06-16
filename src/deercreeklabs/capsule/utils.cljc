@@ -56,7 +56,8 @@
    (s/optional-key :rcv-queue-size) s/Int
    (s/optional-key :send-queue-size) s/Int
    (s/optional-key :silence-log?) s/Bool
-   (s/optional-key :on-reconnect) (s/=> s/Any CapsuleClient)
+   (s/optional-key :on-connect) (s/=> s/Any CapsuleClient)
+   (s/optional-key :on-disconnect) (s/=> s/Any CapsuleClient)
    (s/optional-key :handlers) HandlerMap
    (s/optional-key :<make-ws-client) (s/=> s/Any)})
 (def EndpointOptions

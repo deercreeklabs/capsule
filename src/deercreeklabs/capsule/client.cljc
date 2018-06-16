@@ -22,9 +22,12 @@
    :rcv-queue-size 1000
    :send-queue-size 1000
    :silence-log? false
-   :on-reconnect (fn [capsule-client]
-                   (infof "Client reconnected.")
-                   nil)})
+   :on-connect (fn [capsule-client]
+                 (infof "Client connected.")
+                 nil)
+   :on-disconnect (fn [capsule-client]
+                    (infof "Client disconnected.")
+                    nil)})
 
 (defprotocol ICapsuleClient
   (<send-msg
@@ -58,7 +61,7 @@
     [get-url get-url-timeout-ms get-credentials get-credentials-timeout-ms
      *rcv-chan send-chan reconnect-chan rpc-name->req-name msg-name->rec-name
      msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
-     rcv-queue-size send-queue-size silence-log? on-reconnect
+     rcv-queue-size send-queue-size silence-log? on-connect on-disconnect
      role peer-role peer-name-maps
      *url->server-fp *server-pcf *rpc-id *tube-client *credentials
      *shutdown? *rpc-id->rpc-info *msg-rec-name->handler]
@@ -268,6 +271,7 @@
                         rcv-chan (ca/chan rcv-queue-size)
                         opts {:on-disconnect
                               (fn [conn code reason]
+                                (on-disconnect this)
                                 (when-not silence-log?
                                   (infof
                                    (str "Connection to %s disconnected: "
@@ -309,14 +313,15 @@
   (start-connect-loop* [this <make-ws-client]
     (ca/go
       (try
-        (au/<? (<connect* this <make-ws-client))
+        (when (au/<? (<connect* this <make-ws-client))
+          (on-connect this))
         (while (not @*shutdown?)
           (let [[reconnect? ch] (ca/alts! [reconnect-chan
                                            (ca/timeout initial-conn-wait-ms)])]
             (when (and (= reconnect-chan ch) reconnect?)
               (let [success? (au/<? (<connect* this <make-ws-client))]
                 (if success?
-                  (on-reconnect this)
+                  (on-connect this)
                   (when-not @*shutdown?
                     (errorf "Client failed to reconnect. Shutting down.")
                     (shutdown this)))))))
@@ -449,7 +454,8 @@
                  rcv-queue-size
                  send-queue-size
                  silence-log?
-                 on-reconnect
+                 on-connect
+                 on-disconnect
                  handlers
                  <make-ws-client]} opts
          *rcv-chan (atom nil)
@@ -477,8 +483,8 @@
                  get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
                  rpc-name->req-name msg-name->rec-name
                  msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
-                 rcv-queue-size send-queue-size silence-log? on-reconnect
-                 role peer-role peer-name-maps
+                 rcv-queue-size send-queue-size silence-log? on-connect
+                 on-disconnect role peer-role peer-name-maps
                  *url->server-fp *server-pcf *rpc-id *tube-client *credentials
                  *shutdown? *rpc-id->rpc-info *msg-rec-name->handler)]
      (doseq [[msg-name-kw handler] handlers]
