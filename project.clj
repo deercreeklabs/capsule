@@ -82,17 +82,17 @@
   :dependencies
   [[bidi "2.1.3" :exclusions [prismatic/schema ring/ring-core]]
    [binaryage/oops "0.6.2"]
-   [com.fzakaria/slf4j-timbre "0.3.8"]
+   [com.fzakaria/slf4j-timbre "0.3.10"]
    [com.taoensso/timbre "4.10.0"]
    [deercreeklabs/async-utils "0.1.10"]
    [deercreeklabs/baracus "0.1.8"]
-   [deercreeklabs/lancaster "0.1.40"
+   [deercreeklabs/lancaster "0.4.1"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
    [deercreeklabs/log-utils "0.1.7"]
    [deercreeklabs/tube "0.1.30" :exclusions [org.slf4j/slf4j-api]]
    [org.clojure/clojure "1.9.0"]
-   [org.clojure/clojurescript "1.10.312"]
+   [org.clojure/clojurescript "1.10.339"]
    [org.clojure/core.async "0.4.474"]
    [primitive-math "0.1.6"]
    [prismatic/schema "1.1.9"]]
