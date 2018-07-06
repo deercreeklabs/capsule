@@ -40,7 +40,7 @@
              :compiler compiler}
       node-test? (assoc :notify-command ["node" output-to]))))
 
-(defproject deercreeklabs/capsule "0.3.18-SNAPSHOT"
+(defproject deercreeklabs/capsule "0.3.18"
   :description "A semantic layer for tube"
   :url "http://www.deercreeklabs.com"
   :license {:name "Apache License, Version 2.0"
@@ -62,7 +62,7 @@
     [[lein-ancient "0.6.15"]
      [lein-cljsbuild "1.1.7"
       :exclusions [org.apache.commons/commons-compress org.clojure/clojure]]
-     [lein-cloverage "1.0.11" :exclusions [org.clojure/clojure]]
+     [lein-cloverage "1.0.11" :exclusions [fipp org.clojure/clojure]]
      [lein-doo "0.1.10"
       :exclusions [org.clojure/clojure org.clojure/clojurescript]]
      [lein-npm "0.6.2" :exclusions [com.fasterxml.jackson.core/jackson-core]]
