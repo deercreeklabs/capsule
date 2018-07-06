@@ -62,7 +62,7 @@
     [[lein-ancient "0.6.15"]
      [lein-cljsbuild "1.1.7"
       :exclusions [org.apache.commons/commons-compress org.clojure/clojure]]
-     [lein-cloverage "1.0.10" :exclusions [org.clojure/clojure]]
+     [lein-cloverage "1.0.11" :exclusions [org.clojure/clojure]]
      [lein-doo "0.1.10"
       :exclusions [org.clojure/clojure org.clojure/clojurescript]]
      [lein-npm "0.6.2" :exclusions [com.fasterxml.jackson.core/jackson-core]]
@@ -82,15 +82,15 @@
   :dependencies
   [[bidi "2.1.3" :exclusions [prismatic/schema ring/ring-core]]
    [binaryage/oops "0.6.2"]
-   [com.fzakaria/slf4j-timbre "0.3.10"]
+   [com.fzakaria/slf4j-timbre "0.3.12"]
    [com.taoensso/timbre "4.10.0"]
-   [deercreeklabs/async-utils "0.1.10"]
-   [deercreeklabs/baracus "0.1.8"]
-   [deercreeklabs/lancaster "0.4.1"
+   [deercreeklabs/async-utils "0.1.12"]
+   [deercreeklabs/baracus "0.1.10"]
+   [deercreeklabs/lancaster "0.4.2"
     :exclusions [org.apache.commons/commons-compress
                  org.clojure/clojure org.slf4j/slf4j-api]]
-   [deercreeklabs/log-utils "0.1.7"]
-   [deercreeklabs/tube "0.1.30" :exclusions [org.slf4j/slf4j-api]]
+   [deercreeklabs/log-utils "0.1.8"]
+   [deercreeklabs/tube "0.1.31" :exclusions [org.slf4j/slf4j-api]]
    [org.clojure/clojure "1.9.0"]
    [org.clojure/clojurescript "1.10.339"]
    [org.clojure/core.async "0.4.474"]
