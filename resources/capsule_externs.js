@@ -40,3 +40,6 @@ RegExp.prototype.schema$core$Schema$spec$arity$1;
 RegExp.prototype.schema$core$Schema$explain$arity$1;
 var Java;
 Java.type;
+var pako;
+pako.deflate;
+pako.inflate;
