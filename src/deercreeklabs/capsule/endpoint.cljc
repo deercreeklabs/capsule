@@ -135,6 +135,9 @@
                 (u/sym-map role msg-name-kw arg)))))
 
   (set-handler [this msg-name-kw handler]
+    (when-not (keyword? msg-name-kw)
+      (throw (ex-info "msg-name-kw must be a keyword."
+                      (u/sym-map msg-name-kw))))
     (u/set-handler msg-name-kw handler peer-name-maps *msg-rec-name->handler
                    peer-role))
 
