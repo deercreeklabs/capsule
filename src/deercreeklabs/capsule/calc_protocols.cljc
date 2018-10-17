@@ -5,7 +5,7 @@
    [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
 
 (def op-arg-schema
-  (l/make-array-schema l/float-schema))
+  (l/array-schema l/float-schema))
 
 (def client-gateway-protocol
   {:roles [:client :gateway]

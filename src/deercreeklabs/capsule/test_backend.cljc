@@ -20,16 +20,16 @@
 (defn handle-request-greeting-update [client msg metadata]
   (cc/send-msg client :set-greeting greeting))
 
-(defn make-backend
+(defn backend
   ([<get-gw-url <get-credentials]
-   (make-backend <get-gw-url <get-credentials nil))
+   (backend <get-gw-url <get-credentials nil))
   ([<get-gw-url <get-credentials options]
    (let [protocol calc-protocols/gateway-backend-protocol
          client (if options
-                  (cc/make-client <get-gw-url <get-credentials protocol
-                                  :backend options)
-                  (cc/make-client <get-gw-url <get-credentials protocol
-                                  :backend))]
+                  (cc/client <get-gw-url <get-credentials protocol
+                             :backend options)
+                  (cc/client <get-gw-url <get-credentials protocol
+                             :backend))]
      (cc/set-handler client :add handle-add)
      (cc/set-handler client :subtract handle-subtract)
      (cc/set-handler client :request-greeting-update

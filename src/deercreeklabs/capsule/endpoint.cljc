@@ -97,7 +97,7 @@
           (do-schema-negotiation* this conn-id tube-conn data)))
       (catch #?(:clj Exception :cljs js/Error) e
         (errorf "Error in on-rcv: %s"
-                (lu/get-exception-msg-and-stacktrace e)))))
+                (lu/ex-msg-and-stacktrace e)))))
 
   (<send-msg [this conn-id msg-name-kw arg]
     (<send-msg this conn-id msg-name-kw arg default-rpc-timeout-ms))
@@ -166,10 +166,10 @@
   (do-schema-negotiation* [this conn-id tube-conn data]
     (let [req (l/deserialize
                u/handshake-req-schema
-               (l/get-parsing-canonical-form u/handshake-req-schema)
+               (l/pcf u/handshake-req-schema)
                data)
-          actual-server-fp (l/get-fingerprint64 msgs-union-schema)
-          server-pcf (l/get-parsing-canonical-form msgs-union-schema)
+          actual-server-fp (l/fingerprint64 msgs-union-schema)
+          server-pcf (l/pcf msgs-union-schema)
           {:keys [client-fp client-pcf server-fp]} req
           client-pcf (if client-pcf
                        (do
@@ -219,7 +219,7 @@
               (sender ::u/login-rsp rsp))))
         (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Error in <handle-login-req*: %s"
-                  (lu/get-exception-msg-and-stacktrace e))))))
+                  (lu/ex-msg-and-stacktrace e))))))
 
   (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms]
     (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
@@ -262,12 +262,12 @@
     (let []
       (u/start-gc-loop *shutdown? *rpc-id->rpc-info))))
 
-(s/defn make-endpoint :- (s/protocol IEndpoint)
+(s/defn endpoint :- (s/protocol IEndpoint)
   ([path :- s/Str
     authenticator :- u/Authenticator
     protocol :- u/Protocol
     role :- u/Role]
-   (make-endpoint path authenticator protocol role default-endpoint-options))
+   (endpoint path authenticator protocol role default-endpoint-options))
   ([path :- s/Str
     authenticator :- u/Authenticator
     protocol :- u/Protocol
@@ -286,10 +286,10 @@
                      (u/sym-map options))))
    (let [{:keys [default-rpc-timeout-ms
                  silence-log? handlers]} options
-         msgs-union-schema (u/make-msgs-union-schema protocol)
+         msgs-union-schema (u/msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
-         my-name-maps (u/make-name-maps protocol role)
-         peer-name-maps (u/make-name-maps protocol peer-role)
+         my-name-maps (u/name-maps protocol role)
+         peer-name-maps (u/name-maps protocol peer-role)
          {:keys [rpc-name->req-name msg-name->rec-name]} my-name-maps
          *conn-id->conn-info (atom {})
          *subject-id->conn-ids (atom {})
@@ -298,7 +298,7 @@
          *rpc-id (atom 0)
          *rpc-id->rpc-info (atom {})
          *shutdown? (atom false)
-         *msg-rec-name->handler (atom (u/make-msg-rec-name->handler
+         *msg-rec-name->handler (atom (u/msg-rec-name->handler
                                        my-name-maps peer-name-maps
                                        *rpc-id->rpc-info silence-log?))
          endpoint (->Endpoint

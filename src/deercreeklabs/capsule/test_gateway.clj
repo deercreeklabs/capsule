@@ -40,31 +40,31 @@
 (defn handle-backend-set-greeting [ce msg metadata]
   (ep/send-msg-to-all-conns ce :set-greeting msg))
 
-(defn make-calc-gateway []
+(defn calc-gateway []
   (u/configure-logging)
   (let [client-proto calc-protocols/client-gateway-protocol
         backend-proto calc-protocols/gateway-backend-protocol
         backend-handlers {}
-        client-ep (ep/make-endpoint
+        client-ep (ep/endpoint
                    "client" test-authenticate client-proto :gateway)
-        backend-ep (ep/make-endpoint
+        backend-ep (ep/endpoint
                     "backend" test-authenticate backend-proto :gateway)]
     (ep/set-handler client-ep :add
-                        (partial <handle-client-add backend-ep))
+                    (partial <handle-client-add backend-ep))
     (ep/set-handler client-ep :subtract
-                        (partial <handle-client-subtract backend-ep))
+                    (partial <handle-client-subtract backend-ep))
     (ep/set-handler client-ep :request-greeting-update
-                        (partial handle-client-request-greeting-update
-                                 backend-ep))
+                    (partial handle-client-request-greeting-update
+                             backend-ep))
     (ep/set-handler client-ep :ping (partial handle-client-ping client-ep))
     (ep/set-handler client-ep :request-conn-count
-                        (partial handle-client-request-conn-count client-ep))
+                    (partial handle-client-request-conn-count client-ep))
     (ep/set-handler client-ep :ping (partial handle-client-ping client-ep))
     (ep/set-handler backend-ep :set-greeting
-                        (partial handle-backend-set-greeting client-ep))
-    (cs/make-server [client-ep backend-ep])))
+                    (partial handle-backend-set-greeting client-ep))
+    (cs/server [client-ep backend-ep])))
 
 (defn -main
   [& args]
-  (let [gateway (make-calc-gateway)]
+  (let [gateway (calc-gateway)]
     (cs/start gateway)))

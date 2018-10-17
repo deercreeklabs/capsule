@@ -59,7 +59,7 @@
    (s/optional-key :on-connect) (s/=> s/Any CapsuleClient)
    (s/optional-key :on-disconnect) (s/=> s/Any CapsuleClient)
    (s/optional-key :handlers) HandlerMap
-   (s/optional-key :<make-ws-client) (s/=> s/Any)})
+   (s/optional-key :<ws-client) (s/=> s/Any)})
 (def EndpointOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
    (s/optional-key :silence-log?) s/Bool
@@ -76,7 +76,7 @@
   [& syms]
   (zipmap (map keyword syms) syms))
 
-(defn make-msg-record-name [msg-type msg-name-kw]
+(defn msg-record-name [msg-type msg-name-kw]
   (let [msg-ns (namespace msg-name-kw)
         msg-name (name msg-name-kw)]
     (keyword msg-ns (str msg-name "-" (name msg-type)))))
@@ -86,10 +86,10 @@
 (def fp-schema l/long-schema)
 
 (def null-or-string-schema
-  (l/make-union-schema [l/null-schema l/string-schema]))
+  (l/union-schema [l/null-schema l/string-schema]))
 
 (def null-or-fp-schema
-  (l/make-union-schema [l/null-schema fp-schema]))
+  (l/union-schema [l/null-schema fp-schema]))
 
 (l/def-enum-schema match-schema
   :both :client :none)
@@ -115,23 +115,23 @@
   [:rpc-id rpc-id-schema]
   [:error-str l/string-schema])
 
-(defn make-rpc-req-schema [[rpc-name rpc-def]]
-  (let [rec-name (make-msg-record-name :rpc-req rpc-name)
+(defn rpc-req-schema [[rpc-name rpc-def]]
+  (let [rec-name (msg-record-name :rpc-req rpc-name)
         arg-schema (:arg rpc-def)]
-    (l/make-record-schema rec-name
+    (l/record-schema rec-name
                           [[:rpc-id rpc-id-schema]
                            [:timeout-ms l/int-schema]
                            [:arg arg-schema]])))
 
-(defn make-rpc-success-rsp-schema [[rpc-name rpc-def]]
-  (let [rec-name (make-msg-record-name :rpc-success-rsp rpc-name)]
-    (l/make-record-schema rec-name
+(defn rpc-success-rsp-schema [[rpc-name rpc-def]]
+  (let [rec-name (msg-record-name :rpc-success-rsp rpc-name)]
+    (l/record-schema rec-name
                           [[:rpc-id rpc-id-schema]
                            [:ret (:ret rpc-def)]])))
 
-(defn make-msg-schema [[msg-name {:keys [arg]}]]
-  (let [rec-name (make-msg-record-name :msg msg-name)]
-    (l/make-record-schema rec-name
+(defn msg-schema [[msg-name {:keys [arg]}]]
+  (let [rec-name (msg-record-name :msg msg-name)]
+    (l/record-schema rec-name
                           [[:arg arg]])))
 
 (defn get-rpcs [protocol role]
@@ -146,41 +146,41 @@
                  (#{role :either} sender)))
           (:msgs protocol)))
 
-(defn make-name-maps [protocol role]
+(defn name-maps [protocol role]
   (let [rpcs (get-rpcs protocol role)
         msgs (get-msgs protocol role)
         rpc-name->req-name (reduce (fn [acc [msg-name msg-def]]
                                      (assoc acc msg-name
-                                            (make-msg-record-name
+                                            (msg-record-name
                                              :rpc-req msg-name)))
                                    {} rpcs)
         rpc-name->rsp-name (reduce (fn [acc [msg-name msg-def]]
                                      (assoc acc msg-name
-                                            (make-msg-record-name
+                                            (msg-record-name
                                              :rpc-success-rsp msg-name)))
                                    {} rpcs)
         msg-name->rec-name (reduce (fn [acc [msg-name msg-def]]
                                      (assoc acc msg-name
-                                            (make-msg-record-name
+                                            (msg-record-name
                                              :msg msg-name)))
                                    {} msgs)]
     (sym-map rpc-name->req-name rpc-name->rsp-name msg-name->rec-name)))
 
-(defn make-role-schemas [protocol role]
+(defn role-schemas [protocol role]
   (let [rpcs (get-rpcs protocol role)
         msgs (get-msgs protocol role)
-        rpc-req-schemas (map make-rpc-req-schema rpcs)
-        rpc-success-rsp-schemas (map make-rpc-success-rsp-schema rpcs)
-        msg-schemas (map make-msg-schema msgs)]
+        rpc-req-schemas (map rpc-req-schema rpcs)
+        rpc-success-rsp-schemas (map rpc-success-rsp-schema rpcs)
+        msg-schemas (map msg-schema msgs)]
     (concat rpc-req-schemas rpc-success-rsp-schemas msg-schemas)))
 
-(s/defn make-msgs-union-schema :- LancasterSchema
+(s/defn msgs-union-schema :- LancasterSchema
   [protocol :- Protocol]
-  (let [role-schemas (mapcat (partial make-role-schemas protocol)
+  (let [role-schemas (mapcat (partial role-schemas protocol)
                              (:roles protocol))]
-    (l/make-union-schema (concat [login-req-schema login-rsp-schema
-                                  rpc-failure-rsp-schema]
-                                 role-schemas))))
+    (l/union-schema (concat [login-req-schema login-rsp-schema
+                             rpc-failure-rsp-schema]
+                            role-schemas))))
 
 (defn get-rpc-id* [*rpc-id]
   (swap! *rpc-id (fn [rpc-id]
@@ -259,9 +259,9 @@
       (handler msg metadata)
       (catch #?(:clj Exception :cljs js/Error) e
         (errorf "Error in handler for %s. %s" msg-name
-                (lu/get-exception-msg-and-stacktrace e))))))
+                (lu/ex-msg-and-stacktrace e))))))
 
-(defn make-handle-rpc-success-rsp [*rpc-id->rpc-info]
+(defn handle-rpc-success-rsp [*rpc-id->rpc-info]
   (fn handle-rpc-success-rsp [msg metadata]
     (let [{:keys [rpc-id ret]} msg
           {:keys [success-cb]} (@*rpc-id->rpc-info rpc-id)]
@@ -269,7 +269,7 @@
       (when success-cb
         (success-cb ret)))))
 
-(defn make-handle-rpc-failure-rsp [*rpc-id->rpc-info silence-log?]
+(defn handle-rpc-failure-rsp [*rpc-id->rpc-info silence-log?]
   (fn handle-rpc-failure-rsp [msg metadata]
     (let [{:keys [rpc-id error-str]} msg
           {:keys [rpc-name-kw arg failure-cb]} (@*rpc-id->rpc-info rpc-id)
@@ -282,7 +282,7 @@
       (when failure-cb
         (failure-cb (ex-info error-msg msg))))))
 
-(defn make-rpc-req-handler [rpc-name rpc-rsp-name handler]
+(defn rpc-req-handler [rpc-name rpc-rsp-name handler]
   (s/fn handle-rpc :- Nil
     [msg :- s/Any
      metadata :- MsgMetadata]
@@ -298,24 +298,24 @@
             (ca/take! handler-ret send-ret)))
         (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Error in handle-rpc for %s: %s" rpc-name
-                  (lu/get-exception-msg-and-stacktrace e))
-          (let [error-str (lu/get-exception-msg-and-stacktrace e)]
+                  (lu/ex-msg-and-stacktrace e))
+          (let [error-str (lu/ex-msg-and-stacktrace e)]
             (sender ::rpc-failure-rsp (sym-map rpc-id error-str))))))))
 
-(defn make-msg-rec-name->handler
+(defn msg-rec-name->handler
   [my-name-maps peer-name-maps *rpc-id->rpc-info silence-log?]
-  (let [m {::rpc-failure-rsp (make-handle-rpc-failure-rsp
+  (let [m {::rpc-failure-rsp (handle-rpc-failure-rsp
                               *rpc-id->rpc-info silence-log?)}]
     (reduce-kv (fn [acc rpc-name rsp-name]
                  (assoc acc rsp-name
-                        (make-handle-rpc-success-rsp *rpc-id->rpc-info)))
+                        (handle-rpc-success-rsp *rpc-id->rpc-info)))
                m (:rpc-name->rsp-name my-name-maps))))
 
 (defn set-rpc-handler
   [rpc-name-kw handler peer-name-maps *msg-rec-name->handler]
   (let [req-name ((:rpc-name->req-name peer-name-maps) rpc-name-kw)
         rsp-name ((:rpc-name->rsp-name peer-name-maps) rpc-name-kw)
-        rpc-handler (make-rpc-req-handler rpc-name-kw rsp-name handler)]
+        rpc-handler (rpc-req-handler rpc-name-kw rsp-name handler)]
     (swap! *msg-rec-name->handler assoc req-name rpc-handler)))
 
 (defn set-msg-handler
@@ -363,4 +363,4 @@
         (ca/<! (ca/timeout 1000)))
       (catch #?(:clj Exception :cljs js/Error) e
         (errorf "Unexpected error in gc loop: %s"
-                (lu/get-exception-msg-and-stacktrace e))))))
+                (lu/ex-msg-and-stacktrace e))))))
