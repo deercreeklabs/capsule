@@ -92,7 +92,8 @@
                                                      [msg-rec-name msg])))]
         (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
           (u/handle-rcv :endpoint conn-id sender (.subject-id conn-info)
-                        peer-id data msgs-union-schema (.client-pcf conn-info)
+                        peer-id data msgs-union-schema
+                        (l/json->schema (.client-pcf conn-info))
                         *msg-rec-name->handler)
           (do-schema-negotiation* this conn-id tube-conn data)))
       (catch #?(:clj Exception :cljs js/Error) e
@@ -166,7 +167,7 @@
   (do-schema-negotiation* [this conn-id tube-conn data]
     (let [req (l/deserialize
                u/handshake-req-schema
-               (l/pcf u/handshake-req-schema)
+               u/handshake-req-schema
                data)
           actual-server-fp (l/fingerprint64 msgs-union-schema)
           server-pcf (l/pcf msgs-union-schema)

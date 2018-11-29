@@ -63,7 +63,7 @@
      msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
      rcv-queue-size send-queue-size silence-log? on-connect on-disconnect
      role peer-role peer-name-maps
-     *url->server-fp *server-pcf *rpc-id *tube-client *credentials
+     *url->server-fp *server-schema *rpc-id *tube-client *credentials
      *shutdown? *rpc-id->rpc-info *msg-rec-name->handler]
 
   ICapsuleClient
@@ -149,7 +149,7 @@
                             (l/wrap u/login-req-schema credentials)))
       (let [data (au/<? rcv-chan)
             [msg-name msg] (l/deserialize msgs-union-schema
-                                          @*server-pcf data)]
+                                          @*server-schema data)]
         (if-not (= ::u/login-rsp msg-name)
           (do
             (errorf "Got wrong login rsp msg: %s" msg-name)
@@ -343,24 +343,23 @@
                   _ (tc/send tube-client (l/serialize
                                           u/handshake-req-schema req))
                   rsp (l/deserialize u/handshake-rsp-schema
-                                     (l/pcf
-                                      u/handshake-rsp-schema)
+                                     u/handshake-rsp-schema
                                      (au/<? rcv-chan))
                   {:keys [match server-fp server-pcf]} rsp]
               (case match
                 :both (do
                         (swap! *url->server-fp assoc url known-server-fp)
                         (when-not known-server-fp
-                          (reset! *server-pcf client-pcf))
+                          (reset! *server-schema (l/json->schema client-pcf)))
                         true)
                 :client (do
                           (swap! *url->server-fp assoc url server-fp)
-                          (reset! *server-pcf server-pcf)
+                          (reset! *server-schema (l/json->schema server-pcf))
                           true)
                 :none (do
                         (when-not (nil? server-fp)
                           (swap! *url->server-fp assoc url server-fp)
-                          (reset! *server-pcf server-pcf))
+                          (reset! *server-schema (l/json->schema server-pcf)))
                         (recur true))))))
         (catch #?(:clj Exception :cljs js/Error) e
           (errorf "Schema negotiation failed: %s"
@@ -414,7 +413,7 @@
                                   "RPC rsp cannot be sent. Queue is full.")))]
                   (u/handle-rcv :client conn-id sender (name peer-role)
                                 (name peer-role) data
-                                msgs-union-schema @*server-pcf
+                                msgs-union-schema @*server-schema
                                 *msg-rec-name->handler))))
             (ca/<! (ca/timeout 100))) ;; Wait for rcv-chan to be set
           (catch #?(:clj Exception :cljs js/Error) e
@@ -469,7 +468,7 @@
          client-fp (l/fingerprint64 msgs-union-schema)
          client-pcf (l/pcf msgs-union-schema)
          *url->server-fp (atom {})
-         *server-pcf (atom {})
+         *server-schema (atom nil)
          *rpc-id (atom 0)
          *tube-client (atom nil)
          *credentials (atom nil)
@@ -485,8 +484,9 @@
                  msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
                  rcv-queue-size send-queue-size silence-log? on-connect
                  on-disconnect role peer-role peer-name-maps
-                 *url->server-fp *server-pcf *rpc-id *tube-client *credentials
-                 *shutdown? *rpc-id->rpc-info *msg-rec-name->handler)]
+                 *url->server-fp *server-schema *rpc-id *tube-client
+                 *credentials *shutdown? *rpc-id->rpc-info
+                 *msg-rec-name->handler)]
      (doseq [[msg-name-kw handler] handlers]
        (set-handler client msg-name-kw handler))
      (start-connect-loop* client <ws-client)

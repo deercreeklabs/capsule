@@ -241,14 +241,16 @@
 
 (defn handle-rcv
   [rcvr-type conn-id sender subject-id peer-id encoded-msg
-   msgs-union-schema writer-pcf *msg-record-name->handler]
-  (let [[msg-name msg] (l/deserialize msgs-union-schema writer-pcf encoded-msg)
+   msgs-union-schema writer-schema *msg-record-name->handler]
+  (let [[msg-name msg] (l/deserialize msgs-union-schema writer-schema
+                                      encoded-msg)
         _ (when (and (not subject-id)
                      (not (= ::login-req msg-name)))
             (throw (ex-info "Subject is not logged in."
                             (sym-map conn-id peer-id msg-name msg))))
         handler (@*msg-record-name->handler msg-name)
         m @*msg-record-name->handler
+        writer-pcf (l/pcf writer-schema)
         metadata (sym-map conn-id sender subject-id peer-id encoded-msg
                           writer-pcf msgs-union-schema msg-name)]
     (when (not handler)
