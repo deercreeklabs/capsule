@@ -5,11 +5,8 @@
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
    [deercreeklabs.lancaster :as l]
-   [deercreeklabs.log-utils :as lu :refer [debugs]]
    [deercreeklabs.tube.connection :as tc]
-   #?(:clj [puget.printer :refer [cprint]])
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]])
+   [schema.core :as s])
   #?(:cljs
      (:require-macros
       [deercreeklabs.capsule.utils :refer [sym-map]])))
@@ -59,12 +56,13 @@
    (s/optional-key :on-connect) (s/=> s/Any CapsuleClient)
    (s/optional-key :on-disconnect) (s/=> s/Any CapsuleClient)
    (s/optional-key :handlers) HandlerMap
-   (s/optional-key :<ws-client) (s/=> s/Any)})
+   (s/optional-key :<ws-client) (s/=> s/Any)
+   (s/optional-key :logger) (s/=> s/Any s/Keyword s/Str)})
 (def EndpointOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
    (s/optional-key :silence-log?) s/Bool
-   (s/optional-key :handlers) HandlerMap})
-
+   (s/optional-key :handlers) HandlerMap
+   (s/optional-key :logger) (s/=> s/Any s/Keyword s/Str)})
 
 (defmacro sym-map
   "Builds a map from symbols.
@@ -75,6 +73,28 @@
     (sym-map a b))  =>  {:a 1 :b 2}"
   [& syms]
   (zipmap (map keyword syms) syms))
+
+(s/defn ex-msg :- s/Str
+  [e]
+  #?(:clj (.toString ^Exception e)
+     :cljs (.-message e)))
+
+(s/defn ex-stacktrace :- s/Str
+  [e]
+  #?(:clj (clojure.string/join "\n" (map str (.getStackTrace ^Exception e)))
+     :cljs (.-stack e)))
+
+(s/defn ex-msg-and-stacktrace :- s/Str
+  [e]
+  (str "\nException:\n"
+       (ex-msg e)
+       "\nStacktrace:\n"
+       (ex-stacktrace e)))
+
+(s/defn noop-logger :- s/Any
+  [level :- s/Keyword
+   msg :- s/Str]
+  )
 
 (defn msg-record-name [msg-type msg-name-kw]
   (let [msg-ns (namespace msg-name-kw)
@@ -189,13 +209,6 @@
                        0
                        new-rpc-id)))))
 
-(defn configure-logging []
-  (timbre/merge-config!
-   {:level :debug
-    :output-fn lu/short-log-output-fn
-    :appenders
-    {:println {:ns-blacklist ["org.eclipse.jetty.*"]}}}))
-
 (s/defn get-current-time-ms :- s/Num
   []
   #?(:clj (System/currentTimeMillis)
@@ -240,7 +253,7 @@
   nil)
 
 (defn handle-rcv
-  [rcvr-type conn-id sender subject-id peer-id encoded-msg
+  [logger rcvr-type conn-id sender subject-id peer-id encoded-msg
    msgs-union-schema writer-schema *msg-record-name->handler]
   (let [[msg-name msg] (l/deserialize msgs-union-schema writer-schema
                                       encoded-msg)
@@ -260,8 +273,8 @@
     (try
       (handler msg metadata)
       (catch #?(:clj Exception :cljs js/Error) e
-        (errorf "Error in handler for %s. %s" msg-name
-                (lu/ex-msg-and-stacktrace e))))))
+        (logger :error (str "Error in handler for " msg-name ":"))
+        (logger :error (u/ex-msg-and-stacktrace e))))))
 
 (defn handle-rpc-success-rsp [*rpc-id->rpc-info]
   (fn handle-rpc-success-rsp [msg metadata]
@@ -271,7 +284,7 @@
       (when success-cb
         (success-cb ret)))))
 
-(defn handle-rpc-failure-rsp [*rpc-id->rpc-info silence-log?]
+(defn handle-rpc-failure-rsp [logger *rpc-id->rpc-info silence-log?]
   (fn handle-rpc-failure-rsp [msg metadata]
     (let [{:keys [rpc-id error-str]} msg
           {:keys [rpc-name-kw arg failure-cb]} (@*rpc-id->rpc-info rpc-id)
@@ -280,7 +293,7 @@
                          arg "\n  Error msg: " error-str)]
       (swap! *rpc-id->rpc-info dissoc rpc-id)
       (when-not silence-log?
-        (errorf "%s" error-msg))
+        (logger :error (str "Error in RPC: " error-msg)))
       (when failure-cb
         (failure-cb (ex-info error-msg msg))))))
 
@@ -305,9 +318,9 @@
             (sender ::rpc-failure-rsp (sym-map rpc-id error-str))))))))
 
 (defn msg-rec-name->handler
-  [my-name-maps peer-name-maps *rpc-id->rpc-info silence-log?]
+  [logger my-name-maps peer-name-maps *rpc-id->rpc-info silence-log?]
   (let [m {::rpc-failure-rsp (handle-rpc-failure-rsp
-                              *rpc-id->rpc-info silence-log?)}]
+                              logger *rpc-id->rpc-info silence-log?)}]
     (reduce-kv (fn [acc rpc-name rsp-name]
                  (assoc acc rsp-name
                         (handle-rpc-success-rsp *rpc-id->rpc-info)))

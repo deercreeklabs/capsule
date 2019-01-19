@@ -1,7 +1,6 @@
 (ns deercreeklabs.capsule
   (:require
-   [deercreeklabs.capsule.utils :as u]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [deercreeklabs.capsule.utils :as u]))
 
 (defn check-protocol
   [protocol]

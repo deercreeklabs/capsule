@@ -7,8 +7,7 @@
    [deercreeklabs.lancaster :as l]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
    [deercreeklabs.tube.connection :as tc]
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [schema.core :as s]))
 
 #?(:clj
    (primitive-math/use-primitive-operators))
@@ -50,11 +49,11 @@
   (start-gc-loop* [this])
   (on-disconnect* [this conn-id remote-addr tube-conn code reason]))
 
-(defrecord Endpoint [path authenticator rpc-name->req-name msg-name->rec-name
-                     msgs-union-schema default-rpc-timeout-ms role peer-role
-                     peer-name-maps *conn-id->conn-info *subject-id->conn-ids
-                     *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
-                     *shutdown? *msg-rec-name->handler]
+(defrecord Endpoint [logger path authenticator rpc-name->req-name
+                     msg-name->rec-name msgs-union-schema default-rpc-timeout-ms
+                     role peer-role peer-name-maps *conn-id->conn-info
+                     *subject-id->conn-ids *conn-count *fp->pcf *rpc-id
+                     *rpc-id->rpc-info *shutdown? *msg-rec-name->handler]
 
   IEndpoint
   (get-path [this]
@@ -91,14 +90,14 @@
                      (tc/send tube-conn (l/serialize msgs-union-schema
                                                      [msg-rec-name msg])))]
         (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
-          (u/handle-rcv :endpoint conn-id sender (.subject-id conn-info)
+          (u/handle-rcv logger :endpoint conn-id sender (.subject-id conn-info)
                         peer-id data msgs-union-schema
                         (l/json->schema (.client-pcf conn-info))
                         *msg-rec-name->handler)
           (do-schema-negotiation* this conn-id tube-conn data)))
       (catch #?(:clj Exception :cljs js/Error) e
-        (errorf "Error in on-rcv: %s"
-                (lu/ex-msg-and-stacktrace e)))))
+        (logger :error  "Error in on-rcv:")
+        (logger :error (u/ex-msg-and-stacktrace e)))))
 
   (<send-msg [this conn-id msg-name-kw arg]
     (<send-msg this conn-id msg-name-kw arg default-rpc-timeout-ms))
@@ -219,8 +218,8 @@
                          #{conn-id})))
               (sender ::u/login-rsp rsp))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (errorf "Error in <handle-login-req*: %s"
-                  (lu/ex-msg-and-stacktrace e))))))
+          (logger :error  "Error in <handle-login-req*")
+          (logger :error (u/ex-msg-and-stacktrace e))))))
 
   (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms]
     (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
@@ -263,6 +262,7 @@
     (let []
       (u/start-gc-loop *shutdown? *rpc-id->rpc-info))))
 
+;; TODO: should logger be handle differently?
 (s/defn endpoint :- (s/protocol IEndpoint)
   ([path :- s/Str
     authenticator :- u/Authenticator
@@ -286,7 +286,8 @@
      (throw (ex-info "`options` parameter must be a map."
                      (u/sym-map options))))
    (let [{:keys [default-rpc-timeout-ms
-                 silence-log? handlers]} options
+                 silence-log? handlers logger]
+          :or {logger u/noop-logger}} options
          msgs-union-schema (u/msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
          my-name-maps (u/name-maps protocol role)
@@ -303,11 +304,11 @@
                                        my-name-maps peer-name-maps
                                        *rpc-id->rpc-info silence-log?))
          endpoint (->Endpoint
-                   path authenticator rpc-name->req-name msg-name->rec-name
-                   msgs-union-schema default-rpc-timeout-ms role peer-role
-                   peer-name-maps *conn-id->conn-info *subject-id->conn-ids
-                   *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
-                   *shutdown? *msg-rec-name->handler)]
+                   logger path authenticator rpc-name->req-name
+                   msg-name->rec-name msgs-union-schema default-rpc-timeout-ms
+                   role peer-role peer-name-maps *conn-id->conn-info
+                   *subject-id->conn-ids *conn-count *fp->pcf *rpc-id
+                   *rpc-id->rpc-info *shutdown? *msg-rec-name->handler)]
      (swap! *msg-rec-name->handler assoc ::u/login-req
             (partial <handle-login-req* endpoint))
      (doseq [[msg-name-kw handler] handlers]

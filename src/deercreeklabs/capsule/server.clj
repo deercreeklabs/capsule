@@ -6,8 +6,7 @@
    [deercreeklabs.log-utils :as lu :refer [debugs]]
    [deercreeklabs.tube.connection :as tc]
    [deercreeklabs.tube.server :as ts]
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [schema.core :as s]))
 
 (def default-port 8080)
 
@@ -59,7 +58,8 @@
          on-disconnect (fn [conn code reason])
          compression-type :smart
          tube-server-options (select-keys options
-                                          [:handle-http :http-timeout-ms])
+                                          [:handle-http :http-timeout-ms
+                                           :logger])
          tube-server (ts/tube-server port on-connect on-disconnect
                                      compression-type tube-server-options)]
      (->CapsuleServer tube-server endpoints))))

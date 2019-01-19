@@ -9,8 +9,7 @@
    [deercreeklabs.capsule.test-backend :as tb]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [schema.core :as s]))
 
 ;; Use this instead of fixtures, which are hard to make work w/ async testing.
 (s/set-fn-validation! true)

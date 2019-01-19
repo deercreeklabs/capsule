@@ -7,8 +7,7 @@
    [deercreeklabs.capsule.server :as cs]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.log-utils :as lu :refer [debugs]]
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [schema.core :as s]))
 
 (defn test-authenticate [subject-id credential metadata]
   (boolean (and (#{"test" "client0" "client1" "client2" "backend"} subject-id)
