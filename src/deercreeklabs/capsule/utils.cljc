@@ -60,8 +60,7 @@
    (s/optional-key :on-connect) (s/=> s/Any CapsuleClient)
    (s/optional-key :on-disconnect) (s/=> s/Any CapsuleClient)
    (s/optional-key :handlers) HandlerMap
-   (s/optional-key :<ws-client) (s/=> s/Any)
-   (s/optional-key :logger) (s/=> s/Any s/Keyword s/Str)})
+   (s/optional-key :<ws-client) (s/=> s/Any)})
 (def EndpointOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
    (s/optional-key :silence-log?) s/Bool
@@ -277,7 +276,7 @@
     (sym-map msg-info rpc-info)))
 
 (defn handle-rcv
-  [logger rcvr-type conn-id sender subject-id peer-id encoded-msg
+  [rcvr-type conn-id sender subject-id peer-id encoded-msg
    msgs-union-schema writer-schema *msg-record-name->handler]
   (let [msg (l/deserialize msgs-union-schema writer-schema encoded-msg)
         msg-name ((meta msg) :short-name)
@@ -307,7 +306,7 @@
       (when success-cb
         (success-cb ret)))))
 
-(defn handle-rpc-failure-rsp [logger *rpc-id->rpc-info silence-log?]
+(defn handle-rpc-failure-rsp [*rpc-id->rpc-info silence-log?]
   (fn handle-rpc-failure-rsp [msg metadata]
     (let [{:keys [rpc-id error-str]} msg
           {:keys [rpc-name-kw arg failure-cb]} (@*rpc-id->rpc-info rpc-id)

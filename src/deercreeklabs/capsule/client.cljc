@@ -58,7 +58,7 @@
   (start-rcv-loop* [this]))
 
 (defrecord CapsuleClient
-    [logger get-url get-url-timeout-ms get-credentials
+    [get-url get-url-timeout-ms get-credentials
      get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
      rpc-name->req-name msg-name->rec-name msgs-union-schema client-fp
      client-pcf default-rpc-timeout-ms rcv-queue-size send-queue-size
@@ -267,8 +267,7 @@
                             (info (str "Got url: " url
                                        ". Attempting websocket connection.")))
                         rcv-chan (ca/chan rcv-queue-size)
-                        opts {:logger logger
-                              :on-disconnect
+                        opts {:on-disconnect
                               (fn [conn code reason]
                                 (on-disconnect this)
                                 (when-not silence-log?
@@ -459,9 +458,7 @@
                  on-connect
                  on-disconnect
                  handlers
-                 <ws-client
-                 logger]
-          :or {logger u/noop-logger}} opts
+                 <ws-client]} opts
          *rcv-chan (atom nil)
          send-chan (ca/chan send-queue-size)
          reconnect-chan (ca/chan)
@@ -483,7 +480,7 @@
                                        my-name-maps peer-name-maps
                                        *rpc-id->rpc-info silence-log?))
          client (->CapsuleClient
-                 logger get-url get-url-timeout-ms get-credentials
+                 get-url get-url-timeout-ms get-credentials
                  get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
                  rpc-name->req-name msg-name->rec-name
                  msgs-union-schema client-fp client-pcf default-rpc-timeout-ms

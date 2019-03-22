@@ -91,7 +91,7 @@
             sender (fn [msg]
                      (tc/send tube-conn (l/serialize msgs-union-schema msg)))]
         (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
-          (u/handle-rcv logger :endpoint conn-id sender (.subject-id conn-info)
+          (u/handle-rcv :endpoint conn-id sender (.subject-id conn-info)
                         peer-id data msgs-union-schema
                         (.client-schema conn-info)
                         *msg-rec-name->handler)
@@ -257,7 +257,6 @@
     (let []
       (u/start-gc-loop *shutdown? *rpc-id->rpc-info))))
 
-;; TODO: should logger be handle differently?
 (s/defn endpoint :- (s/protocol IEndpoint)
   ([path :- s/Str
     authenticator :- u/Authenticator
@@ -281,8 +280,7 @@
      (throw (ex-info "`options` parameter must be a map."
                      (u/sym-map options))))
    (let [{:keys [default-rpc-timeout-ms
-                 silence-log? handlers logger]
-          :or {logger u/noop-logger}} options
+                 silence-log? handlers]} options
          msgs-union-schema (u/msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
          my-name-maps (u/name-maps protocol role)
