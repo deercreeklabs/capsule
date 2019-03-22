@@ -60,7 +60,8 @@
          on-disconnect (fn [conn code reason])
          compression-type :smart
          tube-server-options (select-keys options
-                                          [:handle-http :http-timeout-ms])
+                                          [:handle-http :http-timeout-ms
+                                           :logger])
          tube-server (ts/tube-server port on-connect on-disconnect
                                      compression-type tube-server-options)]
      (->CapsuleServer tube-server endpoints))))

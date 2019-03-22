@@ -58,11 +58,11 @@
   (start-rcv-loop* [this]))
 
 (defrecord CapsuleClient
-    [get-url get-url-timeout-ms get-credentials get-credentials-timeout-ms
-     *rcv-chan send-chan reconnect-chan rpc-name->req-name msg-name->rec-name
-     msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
-     rcv-queue-size send-queue-size silence-log? on-connect on-disconnect
-     role peer-role peer-name-maps
+    [logger get-url get-url-timeout-ms get-credentials
+     get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
+     rpc-name->req-name msg-name->rec-name msgs-union-schema client-fp
+     client-pcf default-rpc-timeout-ms rcv-queue-size send-queue-size
+     silence-log? on-connect on-disconnect role peer-role peer-name-maps
      *url->server-fp *server-schema *rpc-id *tube-client *credentials
      *shutdown? *rpc-id->rpc-info *msg-rec-name->handler]
 
@@ -267,7 +267,8 @@
                             (info (str "Got url: " url
                                        ". Attempting websocket connection.")))
                         rcv-chan (ca/chan rcv-queue-size)
-                        opts {:on-disconnect
+                        opts {:logger logger
+                              :on-disconnect
                               (fn [conn code reason]
                                 (on-disconnect this)
                                 (when-not silence-log?
@@ -458,7 +459,9 @@
                  on-connect
                  on-disconnect
                  handlers
-                 <ws-client]} opts
+                 <ws-client
+                 logger]
+          :or {logger u/noop-logger}} opts
          *rcv-chan (atom nil)
          send-chan (ca/chan send-queue-size)
          reconnect-chan (ca/chan)
@@ -480,7 +483,7 @@
                                        my-name-maps peer-name-maps
                                        *rpc-id->rpc-info silence-log?))
          client (->CapsuleClient
-                 get-url get-url-timeout-ms get-credentials
+                 logger get-url get-url-timeout-ms get-credentials
                  get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
                  rpc-name->req-name msg-name->rec-name
                  msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
