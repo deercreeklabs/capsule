@@ -5,9 +5,7 @@
    [deercreeklabs.capsule.calc-protocols :as calc-protocols]
    [deercreeklabs.capsule.client :as cc]
    [deercreeklabs.capsule.utils :as u]
-   [deercreeklabs.log-utils :as lu :refer [debugs]]
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [schema.core :as s]))
 
 (def greeting "Hello")
 

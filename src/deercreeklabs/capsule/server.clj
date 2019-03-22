@@ -2,12 +2,11 @@
   (:require
    [bidi.bidi :as bidi]
    [deercreeklabs.capsule.endpoint :as endpoint]
+   [deercreeklabs.capsule.logging :as logging :refer [error info]]
    [deercreeklabs.capsule.utils :as u]
-   [deercreeklabs.log-utils :as lu :refer [debugs]]
    [deercreeklabs.tube.connection :as tc]
    [deercreeklabs.tube.server :as ts]
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [schema.core :as s]))
 
 (def default-port 8080)
 
@@ -19,9 +18,11 @@
 (defrecord CapsuleServer [tube-server endpoints]
   ICapsuleServer
   (start [this]
+    (info "Starting Capsule server...")
     (ts/start tube-server))
 
   (stop [this]
+    (info "Stopping Capsule server...")
     (ts/stop tube-server))
 
   (get-conn-counts [this]
@@ -46,7 +47,7 @@
           {:keys [handler]} (bidi/match-route routes uri)]
       (if handler
         (handler conn)
-        (errorf "No handler matches for path %s" uri)))))
+        (error (str "No handler matches for path " uri))))))
 
 (s/defn server :- (s/protocol ICapsuleServer)
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]]

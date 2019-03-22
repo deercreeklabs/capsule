@@ -1,15 +1,16 @@
 (ns deercreeklabs.capsule.utils
   (:require
    [clojure.core.async :as ca]
+   #?(:cljs [clojure.pprint :as pprint])
    [clojure.set :refer [subset?]]
+   [clojure.string :as str]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
+   [deercreeklabs.capsule.logging :as logging :refer [debug debug-syms error]]
    [deercreeklabs.lancaster :as l]
-   [deercreeklabs.log-utils :as lu :refer [debugs]]
+   #?(:clj [puget.printer :refer [cprint-str]])
    [deercreeklabs.tube.connection :as tc]
-   #?(:clj [puget.printer :refer [cprint]])
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]])
+   [schema.core :as s])
   #?(:cljs
      (:require-macros
       [deercreeklabs.capsule.utils :refer [sym-map]])))
@@ -65,7 +66,6 @@
    (s/optional-key :silence-log?) s/Bool
    (s/optional-key :handlers) HandlerMap})
 
-
 (defmacro sym-map
   "Builds a map from symbols.
    Symbol names are turned into keywords and become the map's keys.
@@ -76,63 +76,55 @@
   [& syms]
   (zipmap (map keyword syms) syms))
 
-(defn msg-record-name [msg-type msg-name-kw]
-  (let [msg-ns (namespace msg-name-kw)
-        msg-name (name msg-name-kw)]
-    (keyword msg-ns (str msg-name "-" (name msg-type)))))
+(defn pprint [x]
+  #?(:clj (.write *out* (cprint-str x))
+     :cljs (pprint/pprint x)))
+
+(defn pprint-str [x]
+  #?(:clj (cprint-str x)
+     :cljs (with-out-str (pprint/pprint x))))
+
+(defn configure-logging []
+  (logging/add-log-reporter! :println logging/println-reporter)
+  (logging/set-log-level! :debug))
+
+(s/defn get-current-time-ms :- s/Num
+  []
+  #?(:clj (System/currentTimeMillis)
+     :cljs (.getTime (js/Date.))))
 
 (def rpc-id-schema l/int-schema)
 
 (def fp-schema l/long-schema)
 
-(def null-or-string-schema
-  (l/union-schema [l/null-schema l/string-schema]))
-
-(def null-or-fp-schema
-  (l/union-schema [l/null-schema fp-schema]))
-
 (l/def-enum-schema match-schema
   :both :client :none)
 
 (l/def-record-schema handshake-req-schema
+  {:key-ns-type :none}
   [:client-fp fp-schema]
-  [:client-pcf null-or-string-schema]
+  [:client-pcf (l/maybe l/string-schema)]
   [:server-fp fp-schema])
 
 (l/def-record-schema handshake-rsp-schema
+  {:key-ns-type :none}
   [:match match-schema]
-  [:server-fp null-or-fp-schema]
-  [:server-pcf null-or-string-schema])
+  [:server-fp (l/maybe fp-schema)]
+  [:server-pcf (l/maybe fp-schema)])
 
 (l/def-record-schema login-req-schema
+  {:key-ns-type :none}
   [:subject-id l/string-schema]
   [:credential l/string-schema])
 
 (l/def-record-schema login-rsp-schema
+  {:key-ns-type :none}
   [:was-successful l/boolean-schema])
 
 (l/def-record-schema rpc-failure-rsp-schema
+  {:key-ns-type :none}
   [:rpc-id rpc-id-schema]
   [:error-str l/string-schema])
-
-(defn rpc-req-schema [[rpc-name rpc-def]]
-  (let [rec-name (msg-record-name :rpc-req rpc-name)
-        arg-schema (:arg rpc-def)]
-    (l/record-schema rec-name
-                          [[:rpc-id rpc-id-schema]
-                           [:timeout-ms l/int-schema]
-                           [:arg arg-schema]])))
-
-(defn rpc-success-rsp-schema [[rpc-name rpc-def]]
-  (let [rec-name (msg-record-name :rpc-success-rsp rpc-name)]
-    (l/record-schema rec-name
-                          [[:rpc-id rpc-id-schema]
-                           [:ret (:ret rpc-def)]])))
-
-(defn msg-schema [[msg-name {:keys [arg]}]]
-  (let [rec-name (msg-record-name :msg msg-name)]
-    (l/record-schema rec-name
-                          [[:arg arg]])))
 
 (defn get-rpcs [protocol role]
   (filter (fn [[msg-name {:keys [ret sender]}]]
@@ -145,6 +137,31 @@
             (and (not ret)
                  (#{role :either} sender)))
           (:msgs protocol)))
+
+(defn msg-record-name [msg-type msg-name-kw]
+  (keyword (str (name msg-name-kw) "-" (name msg-type))))
+
+(defn rpc-req-schema [[rpc-name rpc-def]]
+  (let [rec-name (msg-record-name :rpc-req rpc-name)
+        arg-schema (:arg rpc-def)]
+    (l/record-schema rec-name
+                     {:key-ns-type :none}
+                     [[:rpc-id rpc-id-schema]
+                      [:timeout-ms l/int-schema]
+                      [:arg arg-schema]])))
+
+(defn rpc-success-rsp-schema [[rpc-name rpc-def]]
+  (let [rec-name (msg-record-name :rpc-success-rsp rpc-name)]
+    (l/record-schema rec-name
+                     {:key-ns-type :none}
+                     [[:rpc-id rpc-id-schema]
+                      [:ret (:ret rpc-def)]])))
+
+(defn msg-schema [[msg-name {:keys [arg]}]]
+  (let [rec-name (msg-record-name :msg msg-name)]
+    (l/record-schema rec-name
+                     {:key-ns-type :none}
+                     [[:arg arg]])))
 
 (defn name-maps [protocol role]
   (let [rpcs (get-rpcs protocol role)
@@ -174,13 +191,27 @@
         msg-schemas (map msg-schema msgs)]
     (concat rpc-req-schemas rpc-success-rsp-schemas msg-schemas)))
 
+(defn dedupe-schemas [schemas]
+  (-> (reduce (fn [acc schema]
+                (let [{:keys [unique-schemas edn-schemas]} acc
+                      edn-schema (l/edn schema)]
+                  (if (edn-schemas edn-schema)
+                    acc
+                    (-> acc
+                        (update :unique-schemas conj schema)
+                        (update :edn-schemas conj edn-schema)))))
+              {:unique-schemas [] :edn-schemas #{}}
+              schemas)
+      (:unique-schemas)))
+
 (s/defn msgs-union-schema :- LancasterSchema
   [protocol :- Protocol]
-  (let [role-schemas (mapcat (partial role-schemas protocol)
-                             (:roles protocol))]
-    (l/union-schema (concat [login-req-schema login-rsp-schema
-                             rpc-failure-rsp-schema]
-                            role-schemas))))
+  (let [all-role-schemas (mapcat (partial role-schemas protocol)
+                                 (:roles protocol))
+        unique-role-schemas (dedupe-schemas all-role-schemas)
+        schemas (concat unique-role-schemas [login-req-schema login-rsp-schema
+                                             rpc-failure-rsp-schema])]
+    (l/union-schema schemas)))
 
 (defn get-rpc-id* [*rpc-id]
   (swap! *rpc-id (fn [rpc-id]
@@ -188,18 +219,6 @@
                      (if (= new-rpc-id 2147483647)
                        0
                        new-rpc-id)))))
-
-(defn configure-logging []
-  (timbre/merge-config!
-   {:level :debug
-    :output-fn lu/short-log-output-fn
-    :appenders
-    {:println {:ns-blacklist ["org.eclipse.jetty.*"]}}}))
-
-(s/defn get-current-time-ms :- s/Num
-  []
-  #?(:clj (System/currentTimeMillis)
-     :cljs (.getTime (js/Date.))))
 
 (defn check-protocol [protocol]
   (let [{:keys [roles msgs]} protocol
@@ -220,7 +239,12 @@
     (doseq [[msg-name msg-def] msgs]
       (let [{:keys [arg ret sender]} msg-def]
         (when-not (keyword? msg-name)
-          (throw (ex-info "Msg names must be keywords."
+          (throw (ex-info (str "Msg names must be keywords. Got `"
+                               msg-name "`.")
+                          (sym-map msg-name msg-def))))
+        (when (namespace msg-name)
+          (throw (ex-info (str "Msg names must be simple (non-qualified) "
+                               "keyords. Got `" msg-name "`.")
                           (sym-map msg-name msg-def))))
         (when-not (contains? msg-def :arg)
           (throw (ex-info "Msg definitions must include an :arg key."
@@ -239,17 +263,28 @@
                           (sym-map msg-name msg-def)))))))
   nil)
 
+(defn rpc-msg-info
+  [rpc-name->req-name rpc-name-kw rpc-id timeout-ms arg success-cb failure-cb]
+  (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
+        failure-time-ms (+ (#?(:clj long :cljs identity) (get-current-time-ms))
+                           (int timeout-ms))
+        rpc-info (sym-map rpc-name-kw arg rpc-id success-cb
+                          failure-cb timeout-ms failure-time-ms)
+        msg (with-meta (sym-map rpc-id timeout-ms arg)
+              {:short-name msg-rec-name})
+        msg-info (sym-map msg failure-time-ms failure-cb)]
+    (sym-map msg-info rpc-info)))
+
 (defn handle-rcv
   [rcvr-type conn-id sender subject-id peer-id encoded-msg
    msgs-union-schema writer-schema *msg-record-name->handler]
-  (let [[msg-name msg] (l/deserialize msgs-union-schema writer-schema
-                                      encoded-msg)
+  (let [msg (l/deserialize msgs-union-schema writer-schema encoded-msg)
+        msg-name ((meta msg) :short-name)
         _ (when (and (not subject-id)
-                     (not (= ::login-req msg-name)))
+                     (not (= :login-req msg-name)))
             (throw (ex-info "Subject is not logged in."
                             (sym-map conn-id peer-id msg-name msg))))
         handler (@*msg-record-name->handler msg-name)
-        m @*msg-record-name->handler
         writer-pcf (l/pcf writer-schema)
         metadata (sym-map conn-id sender subject-id peer-id encoded-msg
                           writer-pcf msgs-union-schema msg-name)]
@@ -260,8 +295,8 @@
     (try
       (handler msg metadata)
       (catch #?(:clj Exception :cljs js/Error) e
-        (errorf "Error in handler for %s. %s" msg-name
-                (lu/ex-msg-and-stacktrace e))))))
+        (error (str "Error in handler for " msg-name ". "
+                    (logging/ex-msg-and-stacktrace e)))))))
 
 (defn handle-rpc-success-rsp [*rpc-id->rpc-info]
   (fn handle-rpc-success-rsp [msg metadata]
@@ -280,11 +315,11 @@
                          arg "\n  Error msg: " error-str)]
       (swap! *rpc-id->rpc-info dissoc rpc-id)
       (when-not silence-log?
-        (errorf "%s" error-msg))
+        (error error-msg))
       (when failure-cb
         (failure-cb (ex-info error-msg msg))))))
 
-(defn rpc-req-handler [rpc-name rpc-rsp-name handler]
+(defn rpc-req-handler [rpc-name-kw rpc-rsp-metadata handler]
   (s/fn handle-rpc :- Nil
     [msg :- s/Any
      metadata :- MsgMetadata]
@@ -294,20 +329,20 @@
         (let [handler-ret (handler arg metadata)
               send-ret (fn [ret]
                          (let [rsp (sym-map rpc-id ret)]
-                           (sender rpc-rsp-name rsp)))]
+                           (sender (with-meta rsp rpc-rsp-metadata))))]
           (if-not (au/channel? handler-ret)
             (send-ret handler-ret)
             (ca/take! handler-ret send-ret)))
         (catch #?(:clj Exception :cljs js/Error) e
-          (errorf "Error in handle-rpc for %s: %s" rpc-name
-                  (lu/ex-msg-and-stacktrace e))
-          (let [error-str (lu/ex-msg-and-stacktrace e)]
-            (sender ::rpc-failure-rsp (sym-map rpc-id error-str))))))))
+          (error (str "Error in handle-rpc for " rpc-name-kw ": "
+                      (logging/ex-msg-and-stacktrace e)))
+          (let [error-str (logging/ex-msg-and-stacktrace e)]
+            (sender :rpc-failure-rsp (sym-map rpc-id error-str))))))))
 
 (defn msg-rec-name->handler
   [my-name-maps peer-name-maps *rpc-id->rpc-info silence-log?]
-  (let [m {::rpc-failure-rsp (handle-rpc-failure-rsp
-                              *rpc-id->rpc-info silence-log?)}]
+  (let [m {:rpc-failure-rsp (handle-rpc-failure-rsp
+                             *rpc-id->rpc-info silence-log?)}]
     (reduce-kv (fn [acc rpc-name rsp-name]
                  (assoc acc rsp-name
                         (handle-rpc-success-rsp *rpc-id->rpc-info)))
@@ -317,7 +352,8 @@
   [rpc-name-kw handler peer-name-maps *msg-rec-name->handler]
   (let [req-name ((:rpc-name->req-name peer-name-maps) rpc-name-kw)
         rsp-name ((:rpc-name->rsp-name peer-name-maps) rpc-name-kw)
-        rpc-handler (rpc-req-handler rpc-name-kw rsp-name handler)]
+        rsp-metadata {:short-name rsp-name}
+        rpc-handler (rpc-req-handler rpc-name-kw rsp-metadata handler)]
     (swap! *msg-rec-name->handler assoc req-name rpc-handler)))
 
 (defn set-msg-handler
@@ -364,5 +400,5 @@
                         rpc-info)))))
         (ca/<! (ca/timeout 1000)))
       (catch #?(:clj Exception :cljs js/Error) e
-        (errorf "Unexpected error in gc loop: %s"
-                (lu/ex-msg-and-stacktrace e))))))
+        (error (str "Unexpected error in gc loop: "
+                    (logging/ex-msg-and-stacktrace e)))))))

@@ -1,0 +1,5 @@
+{:optimizations :none
+ :output-dir "target/test_cljs"
+ :output-to "target/test_cljs/test_main.js"
+ :parallel-build true
+ :source-map true}

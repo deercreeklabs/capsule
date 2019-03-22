@@ -1,14 +1,15 @@
 (ns deercreeklabs.capsule.endpoint
   (:require
    [clojure.core.async :as ca]
+   [clojure.data :as data]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
+   [deercreeklabs.capsule.logging :as logging
+    :refer [debug debug-syms error info]]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]
-   [deercreeklabs.log-utils :as lu :refer [debugs]]
    [deercreeklabs.tube.connection :as tc]
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [schema.core :as s]))
 
 #?(:clj
    (primitive-math/use-primitive-operators))
@@ -17,7 +18,7 @@
   {:default-rpc-timeout-ms 10000
    :silence-log? false})
 
-(deftype ConnInfo [tube-conn subject-id client-pcf])
+(deftype ConnInfo [tube-conn subject-id client-schema])
 
 (defprotocol IEndpoint
   (get-path [this])
@@ -53,7 +54,7 @@
 (defrecord Endpoint [path authenticator rpc-name->req-name msg-name->rec-name
                      msgs-union-schema default-rpc-timeout-ms role peer-role
                      peer-name-maps *conn-id->conn-info *subject-id->conn-ids
-                     *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
+                     *conn-count *fp->schema *rpc-id *rpc-id->rpc-info
                      *shutdown? *msg-rec-name->handler]
 
   IEndpoint
@@ -76,8 +77,8 @@
     (swap! *conn-count #(inc (int %)))
     (let [conn-id (tc/get-conn-id tube-conn)
           remote-addr (tc/get-remote-addr tube-conn)]
-      (infof "Opened conn %s on %s from %s. Endpoint conn count: %s"
-             conn-id path remote-addr @*conn-count)
+      (info (str "Opened conn " conn-id " on " path " from " remote-addr
+                 ". Endpoint conn count: " @*conn-count))
       (tc/set-on-rcv tube-conn (fn [conn data]
                                  (on-rcv this conn data)))
       (tc/set-on-disconnect tube-conn
@@ -87,18 +88,16 @@
     (try
       (let [conn-id (tc/get-conn-id tube-conn)
             peer-id (tc/get-remote-addr tube-conn)
-            sender (fn [msg-rec-name msg]
-                     (tc/send tube-conn (l/serialize msgs-union-schema
-                                                     [msg-rec-name msg])))]
+            sender (fn [msg]
+                     (tc/send tube-conn (l/serialize msgs-union-schema msg)))]
         (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
           (u/handle-rcv :endpoint conn-id sender (.subject-id conn-info)
                         peer-id data msgs-union-schema
-                        (l/json->schema (.client-pcf conn-info))
+                        (.client-schema conn-info)
                         *msg-rec-name->handler)
           (do-schema-negotiation* this conn-id tube-conn data)))
       (catch #?(:clj Exception :cljs js/Error) e
-        (errorf "Error in on-rcv: %s"
-                (lu/ex-msg-and-stacktrace e)))))
+        (error (str "Error in on-rcv: " (logging/ex-msg-and-stacktrace e))))))
 
   (<send-msg [this conn-id msg-name-kw arg]
     (<send-msg this conn-id msg-name-kw arg default-rpc-timeout-ms))
@@ -165,32 +164,30 @@
 
   IEndpointInternals
   (do-schema-negotiation* [this conn-id tube-conn data]
-    (let [req (l/deserialize
-               u/handshake-req-schema
-               u/handshake-req-schema
-               data)
+    (let [req (l/deserialize-same u/handshake-req-schema data)
           actual-server-fp (l/fingerprint64 msgs-union-schema)
           server-pcf (l/pcf msgs-union-schema)
           {:keys [client-fp client-pcf server-fp]} req
-          client-pcf (if client-pcf
-                       (do
-                         (swap! *fp->pcf assoc client-fp client-pcf)
-                         client-pcf)
-                       (@*fp->pcf client-fp))
+          client-schema (if client-pcf
+                          (let [client-schema (l/json->schema client-pcf)]
+                            (swap! *fp->schema assoc client-fp client-schema)
+                            client-schema)
+                          (@*fp->schema client-fp))
           server-match? (#?(:clj = :cljs .equals)
                          actual-server-fp
                          server-fp)
-          match (if-not client-pcf
-                  :none
+          match (if-not client-schema
+                  :match/none
                   (if server-match?
-                    :both
-                    :client))
-          rsp (cond-> {:match match}
-                (not server-match?) (assoc :server-fp actual-server-fp
-                                           :server-pcf server-pcf))]
+                    :match/both
+                    :match/client))
+          rsp (cond-> (u/sym-map match)
+                (not server-match?)
+                (assoc :server-fp actual-server-fp
+                       :server-pcf server-pcf))]
       (tc/send tube-conn (l/serialize u/handshake-rsp-schema rsp))
-      (when client-pcf
-        (let [conn-info (->ConnInfo tube-conn nil client-pcf)]
+      (when client-schema
+        (let [conn-info (->ConnInfo tube-conn nil client-schema)]
           (swap! *conn-id->conn-info assoc conn-id conn-info)))))
 
   (<handle-login-req* [this msg metadata]
@@ -204,50 +201,47 @@
               was-successful (boolean (if-not (au/channel? auth-ret)
                                         auth-ret
                                         (au/<? auth-ret)))
-              rsp (u/sym-map was-successful)]
+              rsp (with-meta (u/sym-map was-successful)
+                    {:short-name :login-rsp})]
           (if-not was-successful
             (do
-              (sender ::u/login-rsp rsp)
+              (sender rsp)
               (tc/close tube-conn))
             (let [new-conn-info (->ConnInfo tube-conn subject-id
-                                            (.client-pcf ^ConnInfo conn-info))]
+                                            (.client-schema
+                                             ^ConnInfo conn-info))]
               (swap! *conn-id->conn-info assoc conn-id new-conn-info)
               (swap! *subject-id->conn-ids update subject-id
                      (fn [old-conn-ids]
                        (if old-conn-ids
                          (conj old-conn-ids conn-id)
                          #{conn-id})))
-              (sender ::u/login-rsp rsp))))
+              (sender rsp))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (errorf "Error in <handle-login-req*: %s"
-                  (lu/ex-msg-and-stacktrace e))))))
+          (error (str "Error in <handle-login-req*: "
+                      (logging/ex-msg-and-stacktrace e)))))))
 
   (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms]
-    (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
-          rpc-id (u/get-rpc-id* *rpc-id)
-          failure-time-ms  (+ (#?(:clj long :cljs identity)
-                               (u/get-current-time-ms))
-                              (int timeout-ms))
-          rpc-info (u/sym-map rpc-name-kw arg rpc-id success-cb
-                              failure-cb timeout-ms failure-time-ms)
-          msg (u/sym-map rpc-id timeout-ms arg)
-          msg-info (u/sym-map msg-rec-name msg failure-time-ms failure-cb)
+    (let [rpc-id (u/get-rpc-id* *rpc-id)
+          {:keys [msg-info rpc-info]} (u/rpc-msg-info
+                                       rpc-name->req-name rpc-name-kw rpc-id
+                                       timeout-ms arg success-cb failure-cb)
           ^ConnInfo conn-info (@*conn-id->conn-info conn-id)
           tube-conn (.tube-conn conn-info)]
       (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
-      (tc/send tube-conn (l/serialize msgs-union-schema [msg-rec-name msg]))))
+      (tc/send tube-conn (l/serialize msgs-union-schema (:msg msg-info)))))
 
-  (send-msg* [this conn-id msg-name-kw msg timeout-ms]
+  (send-msg* [this conn-id msg-name-kw arg timeout-ms]
     (let [msg-rec-name (msg-name->rec-name msg-name-kw)
+          msg (with-meta {:arg arg} {:short-name msg-rec-name})
           ^ConnInfo conn-info (@*conn-id->conn-info conn-id)
           tube-conn (.tube-conn conn-info)]
-      (tc/send tube-conn (l/serialize msgs-union-schema
-                                      [msg-rec-name {:arg msg}]))))
+      (tc/send tube-conn (l/serialize msgs-union-schema msg))))
 
   (on-disconnect* [this conn-id remote-addr tube-conn code reason]
     (swap! *conn-count #(dec (int %)))
-    (infof (str "Closed conn %s on %s from %s. Endpoint conn count: %s")
-           conn-id path remote-addr @*conn-count)
+    (info (str "Closed conn " conn-id " on " path " from " remote-addr
+               ". Endpoint conn count: "  @*conn-count))
     (when-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
       (swap! *conn-id->conn-info dissoc conn-id)
       (when-let [subject-id (.subject-id conn-info)]
@@ -295,7 +289,7 @@
          *conn-id->conn-info (atom {})
          *subject-id->conn-ids (atom {})
          *conn-count (atom 0)
-         *fp->pcf (atom {})
+         *fp->schema (atom {})
          *rpc-id (atom 0)
          *rpc-id->rpc-info (atom {})
          *shutdown? (atom false)
@@ -306,9 +300,9 @@
                    path authenticator rpc-name->req-name msg-name->rec-name
                    msgs-union-schema default-rpc-timeout-ms role peer-role
                    peer-name-maps *conn-id->conn-info *subject-id->conn-ids
-                   *conn-count *fp->pcf *rpc-id *rpc-id->rpc-info
+                   *conn-count *fp->schema *rpc-id *rpc-id->rpc-info
                    *shutdown? *msg-rec-name->handler)]
-     (swap! *msg-rec-name->handler assoc ::u/login-req
+     (swap! *msg-rec-name->handler assoc :login-req
             (partial <handle-login-req* endpoint))
      (doseq [[msg-name-kw handler] handlers]
        (set-handler endpoint msg-name-kw handler))

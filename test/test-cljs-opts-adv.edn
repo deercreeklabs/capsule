@@ -1,0 +1,9 @@
+{:infer-externs true
+ :optimizations :advanced
+ :output-dir "target/test_adv"
+ :output-to "target/test_adv/test_main.js"
+ :parallel-build true
+ :pretty-print true
+ :pseudo-names true
+ :source-map "target/test_adv/map.js.map"
+ :static-fns true}

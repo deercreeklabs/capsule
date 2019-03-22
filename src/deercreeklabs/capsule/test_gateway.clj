@@ -4,11 +4,10 @@
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.capsule.calc-protocols :as calc-protocols]
    [deercreeklabs.capsule.endpoint :as ep]
+   [deercreeklabs.capsule.logging :as logging :refer [debug]]
    [deercreeklabs.capsule.server :as cs]
    [deercreeklabs.capsule.utils :as u]
-   [deercreeklabs.log-utils :as lu :refer [debugs]]
-   [schema.core :as s]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [schema.core :as s]))
 
 (defn test-authenticate [subject-id credential metadata]
   (boolean (and (#{"test" "client0" "client1" "client2" "backend"} subject-id)
@@ -41,7 +40,6 @@
   (ep/send-msg-to-all-conns ce :set-greeting msg))
 
 (defn calc-gateway []
-  (u/configure-logging)
   (let [client-proto calc-protocols/client-gateway-protocol
         backend-proto calc-protocols/gateway-backend-protocol
         backend-handlers {}
@@ -66,5 +64,6 @@
 
 (defn -main
   [& args]
+  (u/configure-logging)
   (let [gateway (calc-gateway)]
     (cs/start gateway)))

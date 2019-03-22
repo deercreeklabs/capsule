@@ -1,8 +1,6 @@
 (ns deercreeklabs.capsule.calc-protocols
   (:require
-   [deercreeklabs.lancaster :as l]
-   [deercreeklabs.log-utils :as lu :refer [debugs]]
-   [taoensso.timbre :as timbre :refer [debugf errorf infof]]))
+   [deercreeklabs.lancaster :as l]))
 
 (def op-arg-schema
   (l/array-schema l/float-schema))
