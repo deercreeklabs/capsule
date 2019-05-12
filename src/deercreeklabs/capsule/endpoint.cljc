@@ -193,11 +193,11 @@
   (<handle-login-req* [this msg metadata]
     (ca/go
       (try
-        (let [{:keys [subject-id credential]} msg
+        (let [{:keys [subject-id subject-secret]} msg
               {:keys [conn-id sender]} metadata
               conn-info (@*conn-id->conn-info conn-id)
               tube-conn (.tube-conn ^ConnInfo conn-info)
-              auth-ret (authenticator subject-id credential metadata)
+              auth-ret (authenticator subject-id subject-secret metadata)
               was-successful (boolean (if-not (au/channel? auth-ret)
                                         auth-ret
                                         (au/<? auth-ret)))

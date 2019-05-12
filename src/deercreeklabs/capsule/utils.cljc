@@ -24,7 +24,7 @@
 (def Role s/Keyword)
 (def Path s/Str)
 (def SubjectId s/Str)
-(def Credential s/Str)
+(def SubjectSecret s/Str)
 (def ConnId s/Int)
 (def RpcId s/Int)
 (def MsgMetadata
@@ -40,7 +40,7 @@
    (s/optional-key :timeout-ms) s/Int})
 (def Handler (s/=> s/Any s/Any MsgMetadata))
 (def HandlerMap {MsgName Handler})
-(def Authenticator (s/=> au/Channel SubjectId Credential))
+(def Authenticator (s/=> au/Channel SubjectId SubjectSecret))
 (def TubeConn (s/protocol tc/IConnection))
 (def GetURLFn (s/=> au/Channel))
 (def GetCredentialsFn (s/=> au/Channel))
@@ -115,7 +115,7 @@
 (l/def-record-schema login-req-schema
   {:key-ns-type :none}
   [:subject-id l/string-schema]
-  [:credential l/string-schema])
+  [:subject-secret l/string-schema])
 
 (l/def-record-schema login-rsp-schema
   {:key-ns-type :none}

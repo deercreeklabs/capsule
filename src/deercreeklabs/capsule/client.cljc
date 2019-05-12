@@ -203,11 +203,11 @@
                             (u/sym-map credentials))))
           (when (not (:subject-id credentials))
             (throw (ex-info (str "get-credentials returned a map without a "
-                                 "valid :subject-id. Got: " credentials)
+                                 "valid :subject-id key. Got: " credentials)
                             (u/sym-map credentials))))
-          (when (not (:credential credentials))
+          (when (not (:subject-secret credentials))
             (throw (ex-info (str "get-credentials returned a map without a "
-                                 "valid :credential. Got: " credentials)
+                                 "valid :subject-secret key. Got: " credentials)
                             (u/sym-map credentials))))
           (if (au/<? (<do-auth-w-creds* this tube-client rcv-chan
                                         credentials))

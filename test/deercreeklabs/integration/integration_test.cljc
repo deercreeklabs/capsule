@@ -22,9 +22,9 @@
   (fn get-gw-url []
     (str "ws://localhost:8080/" endpoint)))
 
-(defn make-get-credentials [subject-id credential]
+(defn make-get-credentials [subject-id subject-secret]
   (fn get-credentials []
-    (u/sym-map subject-id credential)))
+    (u/sym-map subject-id subject-secret)))
 
 (def rpc-timeout #?(:cljs 10000 :clj 1000))
 (def test-timeout #?(:cljs 20000 :clj 2000))

@@ -9,9 +9,9 @@
    [deercreeklabs.capsule.utils :as u]
    [schema.core :as s]))
 
-(defn test-authenticate [subject-id credential metadata]
+(defn test-authenticate [subject-id subject-secret metadata]
   (boolean (and (#{"test" "client0" "client1" "client2" "backend"} subject-id)
-                (= "test" credential))))
+                (= "test" subject-secret))))
 
 (defn <handle-client-add [be arg metadata]
   (let [ids (ep/get-subject-conn-ids be "backend")
