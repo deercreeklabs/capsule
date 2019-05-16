@@ -53,6 +53,9 @@
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]]
    (server endpoints default-port {}))
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]
+    port :- s/Int]
+   (server endpoints port {}))
+  ([endpoints :- [(s/protocol endpoint/IEndpoint)]
     port :- s/Int
     options :- {s/Keyword s/Any}]
    (let [routes (routes endpoints)
