@@ -337,7 +337,8 @@
           (error (str "Error in handle-rpc for " rpc-name-kw ": "
                       (logging/ex-msg-and-stacktrace e)))
           (let [error-str (logging/ex-msg-and-stacktrace e)]
-            (sender :rpc-failure-rsp (sym-map rpc-id error-str))))))))
+            (sender (with-meta (sym-map rpc-id error-str)
+                      {:short-name :rpc-failure-rsp}))))))))
 
 (defn msg-rec-name->handler
   [my-name-maps peer-name-maps *rpc-id->rpc-info silence-log?]
@@ -397,7 +398,7 @@
               (failure-cb
                (ex-info (str "RPC timed out after " (:timeout-ms rpc-info)
                              " milliseconds.")
-                        rpc-info)))))
+                        (dissoc rpc-info :success-cb :failure-cb))))))
         (ca/<! (ca/timeout 1000)))
       (catch #?(:clj Exception :cljs js/Error) e
         (error (str "Unexpected error in gc loop: "
