@@ -9,6 +9,14 @@
    [deercreeklabs.capsule.utils :as u]
    [schema.core :as s]))
 
+(defn on-connect [{:keys [conn-id peer-id] :as info}]
+  (info "Client connected. Info: " (u/pprint-str info))
+  nil)
+
+(defn on-disconnect [{:keys [conn-id peer-id] :as info}]
+  (info "Client disconnected. Info: " (u/pprint-str info))
+  nil)
+
 (defn test-authenticate [subject-id subject-secret metadata]
   (boolean (and (#{"test" "client0" "client1" "client2" "backend"} subject-id)
                 (= "test" subject-secret))))
@@ -44,7 +52,8 @@
         backend-proto calc-protocols/gateway-backend-protocol
         backend-handlers {}
         client-ep (ep/endpoint
-                   "client" test-authenticate client-proto :gateway)
+                   "client" test-authenticate client-proto :gateway
+                   (u/sym-map on-connect on-disconnect))
         backend-ep (ep/endpoint
                     "backend" test-authenticate backend-proto :gateway)]
     (ep/set-handler client-ep :add

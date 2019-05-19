@@ -50,6 +50,7 @@
                    (s/optional-key :ret) LancasterSchema
                    (s/required-key :sender) Role}}})
 (def CapsuleClient s/Any) ;; Avoid circular dependency w/ client.cljc
+
 (def ClientOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
    (s/optional-key :get-credentials-timeout-ms) s/Int
@@ -61,10 +62,15 @@
    (s/optional-key :on-disconnect) (s/=> s/Any CapsuleClient)
    (s/optional-key :handlers) HandlerMap
    (s/optional-key :<ws-client) (s/=> s/Any)})
+(def EndpointConnectionInfo
+  {(s/required-key :conn-id) ConnId
+   (s/required-key :peer-id) s/Str})
 (def EndpointOptions
   {(s/optional-key :default-rpc-timeout-ms) s/Int
-   (s/optional-key :silence-log?) s/Bool
-   (s/optional-key :handlers) HandlerMap})
+   (s/optional-key :handlers) HandlerMap
+   (s/optional-key :on-connect) (s/=> s/Any EndpointConnectionInfo)
+   (s/optional-key :on-disconnect) (s/=> s/Any EndpointConnectionInfo)
+   (s/optional-key :silence-log?) s/Bool})
 
 (defmacro sym-map
   "Builds a map from symbols.
@@ -328,8 +334,11 @@
       (try
         (let [handler-ret (handler arg metadata)
               send-ret (fn [ret]
-                         (let [rsp (sym-map rpc-id ret)]
-                           (sender (with-meta rsp rpc-rsp-metadata))))]
+                         (if (instance? #?(:cljs js/Error :clj Throwable) ret)
+                           (error (str "Error in handle-rpc for " rpc-name-kw
+                                       ": " (logging/ex-msg-and-stacktrace ret)))
+                           (let [rsp (sym-map rpc-id ret)]
+                             (sender (with-meta rsp rpc-rsp-metadata)))))]
           (if-not (au/channel? handler-ret)
             (send-ret handler-ret)
             (ca/take! handler-ret send-ret)))

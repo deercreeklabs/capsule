@@ -53,7 +53,8 @@
 
 (defrecord Endpoint [path authenticator rpc-name->req-name msg-name->rec-name
                      msgs-union-schema default-rpc-timeout-ms role peer-role
-                     peer-name-maps *conn-id->conn-info *subject-id->conn-ids
+                     peer-name-maps on-connect-cb on-disconnect-cb
+                     *conn-id->conn-info *subject-id->conn-ids
                      *conn-count *fp->schema *rpc-id *rpc-id->rpc-info
                      *shutdown? *msg-rec-name->handler]
 
@@ -82,7 +83,10 @@
       (tc/set-on-rcv tube-conn (fn [conn data]
                                  (on-rcv this conn data)))
       (tc/set-on-disconnect tube-conn
-                            (partial on-disconnect* this conn-id remote-addr))))
+                            (partial on-disconnect* this conn-id remote-addr))
+      (when on-connect-cb
+        (on-connect-cb {:conn-id conn-id
+                        :peer-id remote-addr}))))
 
   (on-rcv [this tube-conn data]
     (try
@@ -242,6 +246,9 @@
     (swap! *conn-count #(dec (int %)))
     (info (str "Closed conn " conn-id " on " path " from " remote-addr
                ". Endpoint conn count: "  @*conn-count))
+    (when on-disconnect-cb
+      (on-disconnect-cb {:conn-id conn-id
+                         :peer-id remote-addr}))
     (when-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
       (swap! *conn-id->conn-info dissoc conn-id)
       (when-let [subject-id (.subject-id conn-info)]
@@ -279,8 +286,8 @@
    (when-not (map? options)
      (throw (ex-info "`options` parameter must be a map."
                      (u/sym-map options))))
-   (let [{:keys [default-rpc-timeout-ms
-                 silence-log? handlers]} options
+   (let [{:keys [default-rpc-timeout-ms handlers
+                 on-connect on-disconnect silence-log? ]} options
          msgs-union-schema (u/msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
          my-name-maps (u/name-maps protocol role)
@@ -299,7 +306,8 @@
          endpoint (->Endpoint
                    path authenticator rpc-name->req-name msg-name->rec-name
                    msgs-union-schema default-rpc-timeout-ms role peer-role
-                   peer-name-maps *conn-id->conn-info *subject-id->conn-ids
+                   peer-name-maps on-connect on-disconnect
+                   *conn-id->conn-info *subject-id->conn-ids
                    *conn-count *fp->schema *rpc-id *rpc-id->rpc-info
                    *shutdown? *msg-rec-name->handler)]
      (swap! *msg-rec-name->handler assoc :login-req
