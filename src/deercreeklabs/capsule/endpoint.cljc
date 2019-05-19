@@ -238,9 +238,12 @@
   (send-msg* [this conn-id msg-name-kw arg timeout-ms]
     (let [msg-rec-name (msg-name->rec-name msg-name-kw)
           msg (with-meta {:arg arg} {:short-name msg-rec-name})
-          ^ConnInfo conn-info (@*conn-id->conn-info conn-id)
-          tube-conn (.tube-conn conn-info)]
-      (tc/send tube-conn (l/serialize msgs-union-schema msg))))
+          ^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
+      (if conn-info
+        (let [tube-conn (.tube-conn conn-info)]
+          (tc/send tube-conn (l/serialize msgs-union-schema msg)))
+        (throw (ex-info (str "Send failure. Conn-id `" conn-id "` is closed.")
+                        (u/sym-map conn-id msg-name-kw))))))
 
   (on-disconnect* [this conn-id remote-addr tube-conn code reason]
     (swap! *conn-count #(dec (int %)))
