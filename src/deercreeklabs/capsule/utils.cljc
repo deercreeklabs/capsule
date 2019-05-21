@@ -41,7 +41,6 @@
 (def Handler (s/=> s/Any s/Any MsgMetadata))
 (def HandlerMap {MsgName Handler})
 (def Authenticator (s/=> au/Channel SubjectId SubjectSecret))
-(def TubeConn (s/protocol tc/IConnection))
 (def GetURLFn (s/=> au/Channel))
 (def GetCredentialsFn (s/=> au/Channel))
 (def Protocol

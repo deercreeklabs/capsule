@@ -2,7 +2,7 @@
  {bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
   ;; TODO: Replace this w/ release version when released.
   deercreeklabs/lancaster {:git/url "https://github.com/deercreeklabs/lancaster.git"
-                           :sha "9d858107f573a71d7eeb92af68019af3ce1614f3"}
+                           :sha "c63f8a31dcaea09d5856f3f5f5596bde93f83fbc"}
   deercreeklabs/tube {:mvn/version "0.2.5"}
   clj-time {:mvn/version "0.15.1"}
   deercreeklabs/async-utils {:mvn/version "0.1.16"}
@@ -34,6 +34,6 @@
   :run {:main-opts ["-m" "deercreeklabs.capsule.test-gateway"]}
 
   :test {:extra-paths ["test"]
-         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-409"}
-                      lambdaisland/kaocha-cljs {:mvn/version "0.0-21"}
+         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-418"}
+                      lambdaisland/kaocha-cljs {:mvn/version "0.0-32"}
                       lambdaisland/kaocha-cloverage {:mvn/version "0.0-32"}}}}}
