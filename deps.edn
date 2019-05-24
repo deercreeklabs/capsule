@@ -2,7 +2,7 @@
  {bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
   ;; TODO: Replace this w/ release version when released.
   deercreeklabs/lancaster {:git/url "https://github.com/deercreeklabs/lancaster.git"
-                           :sha "a900309155de8fb20b73fe7c6aa2940d1679de1e"}
+                           :sha "211c8f4e53bf2cbf3267a818a3b676e208405a26"}
   deercreeklabs/tube {:mvn/version "0.2.5"}
   clj-time {:mvn/version "0.15.1"}
   deercreeklabs/async-utils {:mvn/version "0.1.16"}
