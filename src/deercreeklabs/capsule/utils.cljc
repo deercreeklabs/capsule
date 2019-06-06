@@ -115,7 +115,7 @@
   {:key-ns-type :none}
   [:match match-schema]
   [:server-fp (l/maybe fp-schema)]
-  [:server-pcf (l/maybe fp-schema)])
+  [:server-pcf (l/maybe l/string-schema)])
 
 (l/def-record-schema login-req-schema
   {:key-ns-type :none}

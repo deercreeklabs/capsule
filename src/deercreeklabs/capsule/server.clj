@@ -15,10 +15,10 @@
   (stop [this])
   (get-conn-counts [this]))
 
-(defrecord CapsuleServer [tube-server endpoints]
+(defrecord CapsuleServer [tube-server port endpoints]
   ICapsuleServer
   (start [this]
-    (info "Starting Capsule server...")
+    (info (str "Starting Capsule server on port " port "..."))
     (ts/start tube-server))
 
   (stop [this]
@@ -66,4 +66,4 @@
                                           [:handle-http :http-timeout-ms])
          tube-server (ts/tube-server port on-connect on-disconnect
                                      compression-type tube-server-options)]
-     (->CapsuleServer tube-server endpoints))))
+     (->CapsuleServer tube-server port endpoints))))

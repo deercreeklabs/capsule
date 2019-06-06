@@ -290,7 +290,7 @@
      (throw (ex-info "`options` parameter must be a map."
                      (u/sym-map options))))
    (let [{:keys [default-rpc-timeout-ms handlers
-                 on-connect on-disconnect silence-log? ]} options
+                 on-connect on-disconnect silence-log?]} options
          msgs-union-schema (u/msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
          my-name-maps (u/name-maps protocol role)
