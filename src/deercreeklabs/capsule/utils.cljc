@@ -198,14 +198,14 @@
 
 (defn dedupe-schemas [schemas]
   (-> (reduce (fn [acc schema]
-                (let [{:keys [unique-schemas edn-schemas]} acc
-                      edn-schema (l/edn schema)]
-                  (if (edn-schemas edn-schema)
+                (let [{:keys [unique-schemas pcfs]} acc
+                      pcf (l/pcf schema)]
+                  (if (pcfs pcf)
                     acc
                     (-> acc
                         (update :unique-schemas conj schema)
-                        (update :edn-schemas conj edn-schema)))))
-              {:unique-schemas [] :edn-schemas #{}}
+                        (update :pcfs conj pcf)))))
+              {:unique-schemas [] :pcfs #{}}
               schemas)
       (:unique-schemas)))
 
