@@ -11,7 +11,10 @@
    #?(:clj [puget.printer :refer [cprint-str]])
    [deercreeklabs.tube.connection :as tc]
    [schema.core :as s])
-  #?(:cljs
+  #?(:clj
+     (:import
+      (clojure.lang ExceptionInfo))
+     :cljs
      (:require-macros
       [deercreeklabs.capsule.utils :refer [sym-map]])))
 
@@ -324,6 +327,13 @@
       (when failure-cb
         (failure-cb (ex-info error-msg msg))))))
 
+(defn throw-cant-serialize [rsp rsp-name e]
+  (let [{:keys [orig-e]} (ex-data e)
+        orig-msg (logging/ex-msg orig-e)
+        return-value (:ret rsp)]
+    (throw (ex-info (str "Can't serialize return value for RPC `" rsp-name "`.")
+                    (sym-map return-value rsp-name orig-e orig-msg)))))
+
 (defn rpc-req-handler [rpc-name-kw rpc-rsp-metadata handler]
   (s/fn handle-rpc :- Nil
     [msg :- s/Any
@@ -332,12 +342,23 @@
           {:keys [sender]} metadata]
       (try
         (let [handler-ret (handler arg metadata)
+              log-e #(error (str "Error in handle-rpc for `" rpc-name-kw
+                                 "`. RPC arg: `" arg "`. Error: "
+                                 (logging/ex-msg-and-stacktrace %)))
               send-ret (fn [ret]
-                         (if (instance? #?(:cljs js/Error :clj Throwable) ret)
-                           (error (str "Error in handle-rpc for " rpc-name-kw
-                                       ": " (logging/ex-msg-and-stacktrace ret)))
-                           (let [rsp (sym-map rpc-id ret)]
-                             (sender (with-meta rsp rpc-rsp-metadata)))))]
+                         (try
+                           (if (instance? #?(:cljs js/Error :clj Throwable) ret)
+                             (log-e ret)
+                             (let [rsp (sym-map rpc-id ret)]
+                               (try
+                                 (sender (with-meta rsp rpc-rsp-metadata))
+                                 (catch #?(:clj ExceptionInfo :cljs js/Error) e
+                                   (if (= :cant-serialize-msg
+                                          (:type (ex-data e)))
+                                     (throw-cant-serialize rsp rpc-name-kw e)
+                                     (throw e))))))
+                           (catch #?(:clj Exception :cljs js/Error) e
+                             (log-e e))))]
           (if-not (au/channel? handler-ret)
             (send-ret handler-ret)
             (ca/take! handler-ret send-ret)))

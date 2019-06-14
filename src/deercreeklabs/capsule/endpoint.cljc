@@ -9,7 +9,10 @@
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]
    [deercreeklabs.tube.connection :as tc]
-   [schema.core :as s]))
+   [schema.core :as s])
+  #?(:clj
+     (:import
+      (clojure.lang ExceptionInfo))))
 
 #?(:clj
    (primitive-math/use-primitive-operators))
@@ -94,7 +97,15 @@
       (let [conn-id (tc/get-conn-id tube-conn)
             peer-id (tc/get-remote-addr tube-conn)
             sender (fn [msg]
-                     (tc/send tube-conn (l/serialize msgs-union-schema msg)))]
+                     (let [ba (try
+                                (l/serialize msgs-union-schema msg)
+                                (catch #?(:clj ExceptionInfo :cljs js/Error) e
+                                  (throw
+                                   (ex-info (str "Can't serialize msg: " msg)
+                                            {:type :cant-serialize-msg
+                                             :msg msg
+                                             :orig-e e}))))]
+                       (tc/send tube-conn ba)))]
         (if-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
           (u/handle-rcv :endpoint conn-id sender (.subject-id conn-info)
                         peer-id data msgs-union-schema
