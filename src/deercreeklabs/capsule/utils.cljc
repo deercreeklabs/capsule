@@ -327,12 +327,12 @@
       (when failure-cb
         (failure-cb (ex-info error-msg msg))))))
 
-(defn throw-cant-serialize [rsp rsp-name e]
+(defn throw-cant-serialize [rsp rpc-name e]
   (let [{:keys [orig-e]} (ex-data e)
         orig-msg (logging/ex-msg orig-e)
         return-value (:ret rsp)]
-    (throw (ex-info (str "Can't serialize return value for RPC `" rsp-name "`.")
-                    (sym-map return-value rsp-name orig-e orig-msg)))))
+    (throw (ex-info (str "Can't serialize return value for RPC `" rpc-name "`.")
+                    (sym-map return-value rpc-name orig-e orig-msg)))))
 
 (defn rpc-req-handler [rpc-name-kw rpc-rsp-metadata handler]
   (s/fn handle-rpc :- Nil
