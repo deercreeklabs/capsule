@@ -16,18 +16,6 @@
 ;; Use this instead of fixtures, which are hard to make work w/ async testing.
 (s/set-fn-validation! true)
 
-(deftest test-name-maps
-  (let [maps (u/name-maps calc-protocols/client-gateway-protocol :client)
-        expected {:rpc-name->req-name {:add :add-rpc-req
-                                       :subtract :subtract-rpc-req}
-                  :rpc-name->rsp-name {:add :add-rpc-success-rsp
-                                       :subtract :subtract-rpc-success-rsp}
-                  :msg-name->rec-name
-                  {:request-greeting-update :request-greeting-update-msg
-                   :request-conn-count :request-conn-count-msg
-                   :ping :ping-msg}}]
-    (is (= expected maps))))
-
 (deftest test-protocols
   (is (nil? (u/check-protocol calc-protocols/client-gateway-protocol)))
   (is (nil? (u/check-protocol calc-protocols/gateway-backend-protocol))))

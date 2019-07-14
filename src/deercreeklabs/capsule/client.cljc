@@ -43,7 +43,7 @@
 
 (defprotocol ICapsuleClientInternals
   (send-rpc* [this msg-name-kw arg success-cb failure-cb timeout-ms])
-  (send-msg* [this msg-name-kw msg timeout-ms])
+  (send-msg* [this msg-name-kw msg failure-cb timeout-ms])
   (<do-login* [this tube-client rcv-chan credentials])
   (<do-auth-w-creds* [this tube-client rcv-chan credentials])
   (<get-credentials* [this])
@@ -60,11 +60,11 @@
 (defrecord CapsuleClient
     [get-url get-url-timeout-ms get-credentials
      get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
-     rpc-name->req-name msg-name->rec-name msgs-union-schema client-fp
-     client-pcf default-rpc-timeout-ms rcv-queue-size send-queue-size
-     silence-log? on-connect on-disconnect role peer-role peer-name-maps
-     *url->server-fp *server-schema *rpc-id *tube-client *credentials
-     *shutdown? *rpc-id->rpc-info *msg-rec-name->handler]
+     msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
+     rcv-queue-size send-queue-size silence-log? on-connect on-disconnect
+     role msgs rpcs peer-role peer-msgs peer-rpcs *url->server-fp *server-schema
+     *rpc-id *tube-client *credentials *shutdown? *rpc-id->rpc-info
+     *msg-rec-name->handler]
 
   ICapsuleClient
   (<send-msg [this msg-name-kw arg]
@@ -93,12 +93,12 @@
     (when @*shutdown?
       (throw (ex-info "Client is shut down" {})))
     (cond
-      (rpc-name->req-name msg-name-kw)
+      (rpcs msg-name-kw)
       (send-rpc* this msg-name-kw arg success-cb failure-cb timeout-ms)
 
-      (msg-name->rec-name msg-name-kw)
+      (msgs msg-name-kw)
       (do
-        (send-msg* this msg-name-kw arg timeout-ms)
+        (send-msg* this msg-name-kw arg failure-cb timeout-ms)
         (when success-cb
           (success-cb nil)))
 
@@ -109,8 +109,8 @@
                 (u/sym-map role msg-name-kw arg)))))
 
   (set-handler [this msg-name-kw handler]
-    (u/set-handler msg-name-kw handler peer-name-maps *msg-rec-name->handler
-                   peer-role))
+    (u/set-handler msg-name-kw handler *msg-rec-name->handler
+                   peer-msgs peer-rpcs peer-role))
 
   (shutdown [this]
     (reset! *shutdown? true)
@@ -121,9 +121,9 @@
   ICapsuleClientInternals
   (send-rpc* [this rpc-name-kw arg success-cb failure-cb timeout-ms]
     (let [rpc-id (u/get-rpc-id* *rpc-id)
-          {:keys [msg-info rpc-info]} (u/rpc-msg-info
-                                       rpc-name->req-name rpc-name-kw rpc-id
-                                       timeout-ms arg success-cb failure-cb)]
+          {:keys [msg-info rpc-info]} (u/rpc-msg-info rpc-name-kw rpc-id
+                                                      timeout-ms arg
+                                                      success-cb failure-cb)]
       (debug (str "send-rpc* msg-info: " msg-info))
       (if (ca/offer! send-chan msg-info)
         (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
@@ -132,28 +132,27 @@
                                {:rpc-info msg-info})))))
     nil)
 
-  (send-msg* [this msg-name-kw arg timeout-ms]
-    (let [msg-rec-name (msg-name->rec-name msg-name-kw)
-          msg (with-meta {:arg arg} {:short-name msg-rec-name})
+  (send-msg* [this msg-name-kw arg failure-cb timeout-ms]
+    (let [msg-rec-name (u/msg-record-name :msg msg-name-kw)
+          msg {msg-rec-name {:arg arg}}
           failure-time-ms (+ (u/get-current-time-ms) timeout-ms)
-          msg-info (u/sym-map msg failure-time-ms)]
+          msg-info (u/sym-map msg failure-time-ms failure-cb)]
       (ca/offer! send-chan msg-info))
     nil)
 
   (<do-login* [this tube-client rcv-chan credentials]
     (au/go
       (tc/send tube-client (l/serialize msgs-union-schema
-                                        (with-meta credentials
-                                          {:short-name :login-req})))
+                                        {:login-req credentials}))
       (let [data (au/<? rcv-chan)
             msg (l/deserialize msgs-union-schema @*server-schema data)]
         (case msg
-          {:was-successful true}
+          {:login-rsp {:was-successful true}}
           (do
             (when-not silence-log? (info "Login succeeded."))
             true)
 
-          {:was-successful false}
+          {:login-rsp {:was-successful false}}
           (do
             (when-not silence-log? (info "Login failed."))
             false)
@@ -347,20 +346,20 @@
                                      (au/<? rcv-chan))
                   {:keys [match server-fp server-pcf]} rsp]
               (case match
-                :match/both
+                :both
                 (do
                   (swap! *url->server-fp assoc url known-server-fp)
                   (when-not known-server-fp
                     (reset! *server-schema (l/json->schema client-pcf)))
                   true)
 
-                :match/client
+                :client
                 (do
                   (swap! *url->server-fp assoc url server-fp)
                   (reset! *server-schema (l/json->schema server-pcf))
                   true)
 
-                :match/none
+                :none
                 (do
                   (when-not (nil? server-fp)
                     (swap! *url->server-fp assoc url server-fp)
@@ -463,9 +462,10 @@
          send-chan (ca/chan send-queue-size)
          reconnect-chan (ca/chan)
          peer-role (u/get-peer-role protocol role)
-         my-name-maps (u/name-maps protocol role)
-         peer-name-maps (u/name-maps protocol peer-role)
-         {:keys [rpc-name->req-name msg-name->rec-name]} my-name-maps
+         peer-msgs (u/get-msgs-name-set protocol peer-role)
+         peer-rpcs (u/get-rpcs-name-set protocol peer-role)
+         msgs (u/get-msgs-name-set protocol role)
+         rpcs (u/get-rpcs-name-set protocol role)
          msgs-union-schema (u/msgs-union-schema protocol)
          client-fp (l/fingerprint64 msgs-union-schema)
          client-pcf (l/pcf msgs-union-schema)
@@ -476,16 +476,15 @@
          *credentials (atom nil)
          *shutdown? (atom false)
          *rpc-id->rpc-info (atom {})
-         *msg-rec-name->handler (atom (u/msg-rec-name->handler
-                                       my-name-maps peer-name-maps
-                                       *rpc-id->rpc-info silence-log?))
+         handler-map (u/make-rpc-rsp-handler-map
+                      protocol role *rpc-id->rpc-info silence-log?)
+         *msg-rec-name->handler (atom handler-map)
          client (->CapsuleClient
                  get-url get-url-timeout-ms get-credentials
                  get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
-                 rpc-name->req-name msg-name->rec-name
                  msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
                  rcv-queue-size send-queue-size silence-log? on-connect
-                 on-disconnect role peer-role peer-name-maps
+                 on-disconnect role msgs rpcs peer-role peer-msgs peer-rpcs
                  *url->server-fp *server-schema *rpc-id *tube-client
                  *credentials *shutdown? *rpc-id->rpc-info
                  *msg-rec-name->handler)]

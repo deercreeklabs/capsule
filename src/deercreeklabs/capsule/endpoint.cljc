@@ -54,10 +54,9 @@
   (start-gc-loop* [this])
   (on-disconnect* [this conn-id remote-addr tube-conn code reason]))
 
-(defrecord Endpoint [path authenticator rpc-name->req-name msg-name->rec-name
-                     msgs-union-schema default-rpc-timeout-ms role peer-role
-                     peer-name-maps on-connect-cb on-disconnect-cb
-                     *conn-id->conn-info *subject-id->conn-ids
+(defrecord Endpoint [path authenticator msgs-union-schema default-rpc-timeout-ms
+                     role msgs rpcs peer-role peer-msgs peer-rpcs on-connect-cb
+                     on-disconnect-cb *conn-id->conn-info *subject-id->conn-ids
                      *conn-count *fp->schema *rpc-id *rpc-id->rpc-info
                      *shutdown? *msg-rec-name->handler]
 
@@ -138,10 +137,10 @@
     (when @*shutdown?
       (throw (ex-info "Endpoint is shut down" (u/sym-map path))))
     (cond
-      (rpc-name->req-name msg-name-kw)
+      (rpcs msg-name-kw)
       (send-rpc* this conn-id msg-name-kw arg success-cb failure-cb timeout-ms)
 
-      (msg-name->rec-name msg-name-kw)
+      (msgs msg-name-kw)
       (send-msg* this conn-id msg-name-kw arg timeout-ms)
 
       :else
@@ -154,8 +153,8 @@
     (when-not (keyword? msg-name-kw)
       (throw (ex-info "msg-name-kw must be a keyword."
                       (u/sym-map msg-name-kw))))
-    (u/set-handler msg-name-kw handler peer-name-maps *msg-rec-name->handler
-                   peer-role))
+    (u/set-handler msg-name-kw handler *msg-rec-name->handler peer-msgs
+                   peer-rpcs peer-role))
 
   (send-msg-to-subject-conns [this subject-id msg-name-kw msg]
     (doseq [conn-id (@*subject-id->conn-ids subject-id)]
@@ -193,10 +192,10 @@
                          actual-server-fp
                          server-fp)
           match (if-not client-schema
-                  :match/none
+                  :none
                   (if server-match?
-                    :match/both
-                    :match/client))
+                    :both
+                    :client))
           rsp (cond-> (u/sym-map match)
                 (not server-match?)
                 (assoc :server-fp actual-server-fp
@@ -217,8 +216,7 @@
               was-successful (boolean (if-not (au/channel? auth-ret)
                                         auth-ret
                                         (au/<? auth-ret)))
-              rsp (with-meta (u/sym-map was-successful)
-                    {:short-name :login-rsp})]
+              rsp {:login-rsp (u/sym-map was-successful)}]
           (if-not was-successful
             (do
               (sender rsp)
@@ -239,17 +237,18 @@
 
   (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms]
     (let [rpc-id (u/get-rpc-id* *rpc-id)
-          {:keys [msg-info rpc-info]} (u/rpc-msg-info
-                                       rpc-name->req-name rpc-name-kw rpc-id
-                                       timeout-ms arg success-cb failure-cb)
+          {:keys [msg-info rpc-info]} (u/rpc-msg-info rpc-name-kw rpc-id
+                                                      timeout-ms arg
+                                                      success-cb failure-cb)
           ^ConnInfo conn-info (@*conn-id->conn-info conn-id)
           tube-conn (.tube-conn conn-info)]
+      (debug (str "send-rpc* msg-info: " msg-info))
       (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
       (tc/send tube-conn (l/serialize msgs-union-schema (:msg msg-info)))))
 
   (send-msg* [this conn-id msg-name-kw arg timeout-ms]
-    (let [msg-rec-name (msg-name->rec-name msg-name-kw)
-          msg (with-meta {:arg arg} {:short-name msg-rec-name})
+    (let [msg-rec-name (u/msg-record-name :msg msg-name-kw)
+          msg {msg-rec-name {:arg arg}}
           ^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
       (when conn-info
         (let [tube-conn (.tube-conn conn-info)]
@@ -304,9 +303,10 @@
                  on-connect on-disconnect silence-log?]} options
          msgs-union-schema (u/msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
-         my-name-maps (u/name-maps protocol role)
-         peer-name-maps (u/name-maps protocol peer-role)
-         {:keys [rpc-name->req-name msg-name->rec-name]} my-name-maps
+         peer-msgs (u/get-msgs-name-set protocol peer-role)
+         peer-rpcs (u/get-rpcs-name-set protocol peer-role)
+         msgs (u/get-msgs-name-set protocol role)
+         rpcs (u/get-rpcs-name-set protocol role)
          *conn-id->conn-info (atom {})
          *subject-id->conn-ids (atom {})
          *conn-count (atom 0)
@@ -314,14 +314,13 @@
          *rpc-id (atom 0)
          *rpc-id->rpc-info (atom {})
          *shutdown? (atom false)
-         *msg-rec-name->handler (atom (u/msg-rec-name->handler
-                                       my-name-maps peer-name-maps
-                                       *rpc-id->rpc-info silence-log?))
+         handler-map (u/make-rpc-rsp-handler-map
+                      protocol role *rpc-id->rpc-info silence-log?)
+         *msg-rec-name->handler (atom handler-map)
          endpoint (->Endpoint
-                   path authenticator rpc-name->req-name msg-name->rec-name
-                   msgs-union-schema default-rpc-timeout-ms role peer-role
-                   peer-name-maps on-connect on-disconnect
-                   *conn-id->conn-info *subject-id->conn-ids
+                   path authenticator msgs-union-schema default-rpc-timeout-ms
+                   role msgs rpcs peer-role peer-msgs peer-rpcs on-connect
+                   on-disconnect *conn-id->conn-info *subject-id->conn-ids
                    *conn-count *fp->schema *rpc-id *rpc-id->rpc-info
                    *shutdown? *msg-rec-name->handler)]
      (swap! *msg-rec-name->handler assoc :login-req

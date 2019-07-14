@@ -109,30 +109,34 @@
   :both :client :none)
 
 (l/def-record-schema handshake-req-schema
-  {:key-ns-type :none}
   [:client-fp fp-schema]
   [:client-pcf (l/maybe l/string-schema)]
   [:server-fp fp-schema])
 
 (l/def-record-schema handshake-rsp-schema
-  {:key-ns-type :none}
   [:match match-schema]
   [:server-fp (l/maybe fp-schema)]
   [:server-pcf (l/maybe l/string-schema)])
 
 (l/def-record-schema login-req-schema
-  {:key-ns-type :none}
   [:subject-id l/string-schema]
   [:subject-secret l/string-schema])
 
+(l/def-record-schema login-req-wrapper-schema
+  [:login-req login-req-schema])
+
 (l/def-record-schema login-rsp-schema
-  {:key-ns-type :none}
   [:was-successful l/boolean-schema])
 
+(l/def-record-schema login-rsp-wrapper-schema
+  [:login-rsp login-rsp-schema])
+
 (l/def-record-schema rpc-failure-rsp-schema
-  {:key-ns-type :none}
   [:rpc-id rpc-id-schema]
   [:error-str l/string-schema])
+
+(l/def-record-schema rpc-failure-rsp-wrapper-schema
+  [:rpc-failure-rsp rpc-failure-rsp-schema])
 
 (defn get-rpcs [protocol role]
   (filter (fn [[msg-name {:keys [ret sender]}]]
@@ -146,58 +150,55 @@
                  (#{role :either} sender)))
           (:msgs protocol)))
 
+(defn get-rpcs-name-set [protocol role]
+  (->> (get-rpcs protocol role)
+       (map first)
+       (set)))
+
+(defn get-msgs-name-set [protocol role]
+  (->> (get-msgs protocol role)
+       (map first)
+       (set)))
+
 (defn msg-record-name [msg-type msg-name-kw]
   (keyword (str (name msg-name-kw) "-" (name msg-type))))
 
-(defn rpc-req-schema [[rpc-name rpc-def]]
+(defn rpc-req-wrapper-schema [[rpc-name rpc-def]]
   (let [rec-name (msg-record-name :rpc-req rpc-name)
-        arg-schema (:arg rpc-def)]
-    (l/record-schema rec-name
-                     {:key-ns-type :none}
-                     [[:rpc-id rpc-id-schema]
-                      [:timeout-ms l/int-schema]
-                      [:arg arg-schema]])))
+        wrapper-name (msg-record-name :rpc-req-wrapper rpc-name)
+        arg-schema (:arg rpc-def)
+        rpc-req-schema (l/record-schema rec-name
+                                        [[:rpc-id rpc-id-schema]
+                                         [:timeout-ms l/int-schema]
+                                         [:arg arg-schema]])]
+    (l/record-schema wrapper-name
+                     [[rec-name rpc-req-schema]])))
 
-(defn rpc-success-rsp-schema [[rpc-name rpc-def]]
-  (let [rec-name (msg-record-name :rpc-success-rsp rpc-name)]
-    (l/record-schema rec-name
-                     {:key-ns-type :none}
-                     [[:rpc-id rpc-id-schema]
-                      [:ret (:ret rpc-def)]])))
+(defn rpc-success-rsp-wrapper-schema [[rpc-name rpc-def]]
+  (let [rec-name (msg-record-name :rpc-success-rsp rpc-name)
+        wrapper-name (msg-record-name :rpc-success-rsp-wrapper rpc-name)
+        rpc-success-rsp-schema (l/record-schema rec-name
+                                                [[:rpc-id rpc-id-schema]
+                                                 [:ret (:ret rpc-def)]])]
+    (l/record-schema wrapper-name
+                     [[rec-name rpc-success-rsp-schema]])))
 
-(defn msg-schema [[msg-name {:keys [arg]}]]
-  (let [rec-name (msg-record-name :msg msg-name)]
-    (l/record-schema rec-name
-                     {:key-ns-type :none}
-                     [[:arg arg]])))
-
-(defn name-maps [protocol role]
-  (let [rpcs (get-rpcs protocol role)
-        msgs (get-msgs protocol role)
-        rpc-name->req-name (reduce (fn [acc [msg-name msg-def]]
-                                     (assoc acc msg-name
-                                            (msg-record-name
-                                             :rpc-req msg-name)))
-                                   {} rpcs)
-        rpc-name->rsp-name (reduce (fn [acc [msg-name msg-def]]
-                                     (assoc acc msg-name
-                                            (msg-record-name
-                                             :rpc-success-rsp msg-name)))
-                                   {} rpcs)
-        msg-name->rec-name (reduce (fn [acc [msg-name msg-def]]
-                                     (assoc acc msg-name
-                                            (msg-record-name
-                                             :msg msg-name)))
-                                   {} msgs)]
-    (sym-map rpc-name->req-name rpc-name->rsp-name msg-name->rec-name)))
+(defn msg-wrapper-schema [[msg-name {:keys [arg]}]]
+  (let [rec-name (msg-record-name :msg msg-name)
+        wrapper-name (msg-record-name :msg-wrapper msg-name)
+        msg-schema (l/record-schema rec-name
+                                    [[:arg arg]])]
+    (l/record-schema wrapper-name
+                     [[rec-name msg-schema]])))
 
 (defn role-schemas [protocol role]
   (let [rpcs (get-rpcs protocol role)
         msgs (get-msgs protocol role)
-        rpc-req-schemas (map rpc-req-schema rpcs)
-        rpc-success-rsp-schemas (map rpc-success-rsp-schema rpcs)
-        msg-schemas (map msg-schema msgs)]
-    (concat rpc-req-schemas rpc-success-rsp-schemas msg-schemas)))
+        rpc-req-wrapper-schemas (map rpc-req-wrapper-schema rpcs)
+        rpc-success-rsp-wrapper-schemas (map rpc-success-rsp-wrapper-schema rpcs)
+        msg-wrapper-schemas (map msg-wrapper-schema msgs)]
+    (concat rpc-req-wrapper-schemas rpc-success-rsp-wrapper-schemas
+            msg-wrapper-schemas)))
 
 (defn dedupe-schemas [schemas]
   (-> (reduce (fn [acc schema]
@@ -217,8 +218,9 @@
   (let [all-role-schemas (mapcat (partial role-schemas protocol)
                                  (:roles protocol))
         unique-role-schemas (dedupe-schemas all-role-schemas)
-        schemas (concat unique-role-schemas [login-req-schema login-rsp-schema
-                                             rpc-failure-rsp-schema])]
+        schemas (concat unique-role-schemas
+                        [login-req-wrapper-schema login-rsp-wrapper-schema
+                         rpc-failure-rsp-wrapper-schema])]
     (l/union-schema schemas)))
 
 (defn get-rpc-id* [*rpc-id]
@@ -272,22 +274,21 @@
   nil)
 
 (defn rpc-msg-info
-  [rpc-name->req-name rpc-name-kw rpc-id timeout-ms arg success-cb failure-cb]
-  (let [msg-rec-name (rpc-name->req-name rpc-name-kw)
+  [rpc-name-kw rpc-id timeout-ms arg success-cb failure-cb]
+  (let [msg-rec-name (msg-record-name :rpc-req rpc-name-kw)
         failure-time-ms (+ (#?(:clj long :cljs identity) (get-current-time-ms))
                            (int timeout-ms))
         rpc-info (sym-map rpc-name-kw arg rpc-id success-cb
                           failure-cb timeout-ms failure-time-ms)
-        msg (with-meta (sym-map rpc-id timeout-ms arg)
-              {:short-name msg-rec-name})
+        msg {msg-rec-name (sym-map rpc-id timeout-ms arg)}
         msg-info (sym-map msg failure-time-ms failure-cb)]
     (sym-map msg-info rpc-info)))
 
 (defn handle-rcv
   [rcvr-type conn-id sender subject-id peer-id encoded-msg
    msgs-union-schema writer-schema *msg-record-name->handler]
-  (let [msg (l/deserialize msgs-union-schema writer-schema encoded-msg)
-        msg-name ((meta msg) :short-name)
+  (let [msg-rec (l/deserialize msgs-union-schema writer-schema encoded-msg)
+        [msg-name msg] (first msg-rec)
         _ (when (and (not subject-id)
                      (not (= :login-req msg-name)))
             (throw (ex-info "Subject is not logged in."
@@ -334,7 +335,7 @@
     (throw (ex-info (str "Can't serialize return value for RPC `" rpc-name "`.")
                     (sym-map return-value rpc-name orig-e orig-msg)))))
 
-(defn rpc-req-handler [rpc-name-kw rpc-rsp-metadata handler]
+(defn rpc-req-handler [rpc-name-kw rpc-rsp-name handler]
   (s/fn handle-rpc :- Nil
     [msg :- s/Any
      metadata :- MsgMetadata]
@@ -351,7 +352,7 @@
                              (log-e ret)
                              (let [rsp (sym-map rpc-id ret)]
                                (try
-                                 (sender (with-meta rsp rpc-rsp-metadata))
+                                 (sender {rpc-rsp-name rsp})
                                  (catch #?(:clj ExceptionInfo :cljs js/Error) e
                                    (if (= :cant-serialize-msg
                                           (:type (ex-data e)))
@@ -366,43 +367,30 @@
           (error (str "Error in handle-rpc for " rpc-name-kw ": "
                       (logging/ex-msg-and-stacktrace e)))
           (let [error-str (logging/ex-msg-and-stacktrace e)]
-            (sender (with-meta (sym-map rpc-id error-str)
-                      {:short-name :rpc-failure-rsp}))))))))
-
-(defn msg-rec-name->handler
-  [my-name-maps peer-name-maps *rpc-id->rpc-info silence-log?]
-  (let [m {:rpc-failure-rsp (handle-rpc-failure-rsp
-                             *rpc-id->rpc-info silence-log?)}]
-    (reduce-kv (fn [acc rpc-name rsp-name]
-                 (assoc acc rsp-name
-                        (handle-rpc-success-rsp *rpc-id->rpc-info)))
-               m (:rpc-name->rsp-name my-name-maps))))
+            (sender {:rpc-failure-rsp (sym-map rpc-id error-str)})))))))
 
 (defn set-rpc-handler
-  [rpc-name-kw handler peer-name-maps *msg-rec-name->handler]
-  (let [req-name ((:rpc-name->req-name peer-name-maps) rpc-name-kw)
-        rsp-name ((:rpc-name->rsp-name peer-name-maps) rpc-name-kw)
-        rsp-metadata {:short-name rsp-name}
-        rpc-handler (rpc-req-handler rpc-name-kw rsp-metadata handler)]
+  [rpc-name-kw handler *msg-rec-name->handler]
+  (let [req-name (msg-record-name :rpc-req rpc-name-kw)
+        rsp-name (msg-record-name :rpc-success-rsp rpc-name-kw)
+        rpc-handler (rpc-req-handler rpc-name-kw rsp-name handler)]
     (swap! *msg-rec-name->handler assoc req-name rpc-handler)))
 
 (defn set-msg-handler
-  [msg-name-kw handler peer-name-maps *msg-rec-name->handler]
-  (let [rec-name ((:msg-name->rec-name peer-name-maps) msg-name-kw)]
+  [msg-name-kw handler *msg-rec-name->handler]
+  (let [rec-name (msg-record-name :msg msg-name-kw)]
     (swap! *msg-rec-name->handler assoc rec-name
            (fn [msg metadata]
              (handler (:arg msg) metadata)))))
 
-(defn set-handler [msg-name-kw handler peer-name-maps *msg-rec-name->handler
-                   peer-role]
+(defn set-handler
+  [msg-name-kw handler *msg-rec-name->handler peer-msgs peer-rpcs peer-role]
   (cond
-    ((:rpc-name->req-name peer-name-maps) msg-name-kw)
-    (set-rpc-handler msg-name-kw handler peer-name-maps
-                     *msg-rec-name->handler)
+    (peer-msgs msg-name-kw)
+    (set-msg-handler msg-name-kw handler *msg-rec-name->handler)
 
-    ((:msg-name->rec-name peer-name-maps) msg-name-kw)
-    (set-msg-handler msg-name-kw handler peer-name-maps
-                     *msg-rec-name->handler)
+    (peer-rpcs msg-name-kw)
+    (set-rpc-handler msg-name-kw handler *msg-rec-name->handler)
 
     :else
     (throw
@@ -415,6 +403,18 @@
       (set)
       (disj role)
       (first)))
+
+(defn make-rpc-rsp-handler-map
+  [protocol role *rpc-id->rpc-info silence-log?]
+  ()
+  (reduce
+   (fn [acc rpc]
+     (-> acc
+         (assoc (msg-record-name :rpc-success-rsp rpc)
+                (handle-rpc-success-rsp *rpc-id->rpc-info))
+         (assoc (msg-record-name :rpc-failure-rsp rpc)
+                (handle-rpc-failure-rsp *rpc-id->rpc-info silence-log?))))
+   {} (keys (get-rpcs protocol role))))
 
 (defn start-gc-loop [*shutdown? *rpc-id->rpc-info]
   (ca/go
