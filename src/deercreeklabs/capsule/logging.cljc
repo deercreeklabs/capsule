@@ -2,7 +2,9 @@
   (:require
    [clojure.core.async :as ca]
    [clojure.string :as string]
-   [net.cgrand.macrovich :as macros]))
+   [net.cgrand.macrovich :as macros])
+  #?(:cljs
+     (:require-macros deercreeklabs.capsule.logging)))
 
 (def *current-log-level (atom :error))
 (def *log-reporters (atom {}))
