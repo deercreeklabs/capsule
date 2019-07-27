@@ -4,7 +4,8 @@
    [clojure.string :as string]
    [net.cgrand.macrovich :as macros])
   #?(:cljs
-     (:require-macros deercreeklabs.capsule.logging)))
+     (:require-macros
+      [deercreeklabs.capsule.logging :refer [debug]])))
 
 (def *current-log-level (atom :error))
 (def *log-reporters (atom {}))
