@@ -2,18 +2,19 @@
  {bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
   ;; TODO: Replace this w/ release version when released.
   deercreeklabs/lancaster {:git/url "https://github.com/deercreeklabs/lancaster.git"
-                           :sha "33f2fa4c511b6346977049515ff4d29c46d5eeaf"}
-  deercreeklabs/tube {:mvn/version "0.2.5"}
+                           :sha "6b6cc9c6c320b67477d1856781b1bd5472144896"}
+  deercreeklabs/tube {:git/url "https://github.com/deercreeklabs/tube.git"
+                      :sha "7bf5eaa2b00af7cf767a2c3f894138b8da0bceb6"}
   clj-time {:mvn/version "0.15.1"}
   deercreeklabs/async-utils {:mvn/version "0.1.16"}
   deercreeklabs/baracus {:mvn/version "0.2.0"}
+  dept24c/schema {:mvn/version "1.1.12"}
   mvxcvi/puget {:mvn/version "1.1.2"}
   net.cgrand/macrovich {:mvn/version "0.2.1"}
   org.clojure/clojure {:mvn/version "1.10.1"}
   org.clojure/clojurescript {:mvn/version "1.10.520"}
   org.clojure/core.async {:mvn/version "0.4.500"}
-  primitive-math {:mvn/version "0.1.6"}
-  prismatic/schema {:mvn/version "1.1.11"}}
+  primitive-math {:mvn/version "0.1.6"}}
 
  :mvn/repos {"central" {:url "https://repo1.maven.org/maven2/"}
              "clojars" {:url "https://repo.clojars.org/"}}
