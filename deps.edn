@@ -3,11 +3,9 @@
   ;; TODO: Replace this w/ release version when released.
   deercreeklabs/lancaster {:git/url "https://github.com/deercreeklabs/lancaster.git"
                            :sha "6b6cc9c6c320b67477d1856781b1bd5472144896"}
-  deercreeklabs/tube {:git/url "https://github.com/deercreeklabs/tube.git"
-                      :sha "7bf5eaa2b00af7cf767a2c3f894138b8da0bceb6"}
+  deercreeklabs/tube {:mvn/version "0.2.6"}
   clj-time {:mvn/version "0.15.1"}
-  deercreeklabs/async-utils {:mvn/version "0.1.16"}
-  deercreeklabs/baracus {:mvn/version "0.2.0"}
+  deercreeklabs/baracus {:mvn/version "0.2.2"}
   dept24c/schema {:mvn/version "1.1.12"}
   mvxcvi/puget {:mvn/version "1.1.2"}
   net.cgrand/macrovich {:mvn/version "0.2.1"}
@@ -31,6 +29,11 @@
                 "[cider.nrepl/cider-middleware,cider.piggieback/wrap-cljs-repl]"]}
 
   :dev {:extra-deps {org.clojure/tools.namespace {:mvn/version "0.2.11"}}}
+
+  :pack {:extra-deps {pack/pack.alpha
+                      {:git/url "https://github.com/juxt/pack.alpha.git"
+                       :sha "2769a6224bfb938e777906ea311b3daf7d2220f5"}}
+         :main-opts ["-m"]}
 
   :run {:main-opts ["-m" "deercreeklabs.capsule.test-gateway"]}
 
