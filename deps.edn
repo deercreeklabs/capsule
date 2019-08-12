@@ -1,9 +1,9 @@
 {:deps
  {bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
-  deercreeklabs/lancaster {:mvn/version "0.7.0"}
-  deercreeklabs/tube {:mvn/version "0.2.7"}
-  clj-time {:mvn/version "0.15.1"}
-  deercreeklabs/baracus {:mvn/version "0.2.2"}
+  clj-time {:mvn/version "0.15.2"}
+  deercreeklabs/baracus {:mvn/version "0.2.3"}
+  deercreeklabs/lancaster {:mvn/version "0.7.1"}
+  deercreeklabs/tube {:mvn/version "0.2.9"}
   dept24c/schema {:mvn/version "1.1.12"}
   mvxcvi/puget {:mvn/version "1.1.2"}
   net.cgrand/macrovich {:mvn/version "0.2.1"}
@@ -36,6 +36,6 @@
   :run {:main-opts ["-m" "deercreeklabs.capsule.test-gateway"]}
 
   :test {:extra-paths ["test"]
-         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-418"}
-                      lambdaisland/kaocha-cljs {:mvn/version "0.0-32"}
+         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-529"}
+                      lambdaisland/kaocha-cljs {:mvn/version "0.0-40"}
                       lambdaisland/kaocha-cloverage {:mvn/version "0.0-32"}}}}}

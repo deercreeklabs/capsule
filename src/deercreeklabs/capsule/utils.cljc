@@ -406,7 +406,6 @@
 
 (defn make-rpc-rsp-handler-map
   [protocol role *rpc-id->rpc-info silence-log?]
-  ()
   (reduce
    (fn [acc rpc]
      (-> acc
