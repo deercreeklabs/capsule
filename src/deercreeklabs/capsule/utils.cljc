@@ -346,13 +346,15 @@
           {:keys [sender]} metadata]
       (try
         (let [handler-ret (handler arg metadata)
-              log-e #(error (str "Error in handle-rpc for `" rpc-name-kw
-                                 "`. RPC arg: `" arg "`. Error: "
-                                 (logging/ex-msg-and-stacktrace %)))
+              fail #(let [error-str (logging/ex-msg-and-stacktrace %)]
+                      (error (str "Error in handle-rpc for `" rpc-name-kw
+                                  "`. RPC arg: `" arg "`. Error: "
+                                  error-str))
+                      (sender {:rpc-failure-rsp (sym-map rpc-id error-str)}))
               send-ret (fn [ret]
                          (try
                            (if (instance? #?(:cljs js/Error :clj Throwable) ret)
-                             (log-e ret)
+                             (fail ret)
                              (let [rsp (sym-map rpc-id ret)]
                                (try
                                  (sender {rpc-rsp-name rsp})
@@ -362,7 +364,7 @@
                                      (throw-cant-serialize rsp rpc-name-kw e)
                                      (throw e))))))
                            (catch #?(:clj Exception :cljs js/Error) e
-                             (log-e e))))]
+                             (fail e))))]
           (if-not (au/channel? handler-ret)
             (send-ret handler-ret)
             (ca/take! handler-ret send-ret)))
