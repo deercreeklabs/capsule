@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>deercreeklabs</groupId>
   <artifactId>capsule</artifactId>
-  <version>0.4.7</version>
+  <version>0.4.8</version>
   <name>capsule</name>
   <dependencies>
     <dependency>
@@ -15,11 +15,6 @@
       <groupId>mvxcvi</groupId>
       <artifactId>puget</artifactId>
       <version>1.1.2</version>
-    </dependency>
-    <dependency>
-      <groupId>dept24c</groupId>
-      <artifactId>schema</artifactId>
-      <version>1.1.12</version>
     </dependency>
     <dependency>
       <groupId>org.clojure</groupId>
@@ -45,6 +40,11 @@
       <groupId>net.cgrand</groupId>
       <artifactId>macrovich</artifactId>
       <version>0.2.1</version>
+    </dependency>
+    <dependency>
+      <groupId>prismatic</groupId>
+      <artifactId>schema</artifactId>
+      <version>1.1.12</version>
     </dependency>
     <dependency>
       <groupId>deercreeklabs</groupId>
