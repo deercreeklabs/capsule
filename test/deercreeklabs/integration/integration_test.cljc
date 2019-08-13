@@ -16,7 +16,7 @@
 ;; Use this instead of fixtures, which are hard to make work w/ async testing.
 (s/set-fn-validation! true)
 
-(u/configure-logging)
+(u/configure-logging :info)
 
 (defn make-get-gw-url [endpoint]
   (fn get-gw-url []
@@ -56,7 +56,7 @@
    (ca/go
      (let [[client backend] (client-and-backend)]
        (try
-         (let [arg    [1 2 3]
+         (let [arg [1 2 3]
                rpc-ch (cc/<send-msg client :add arg)
                [v ch] (au/alts? [rpc-ch (ca/timeout rpc-timeout)])]
            (is (= rpc-ch ch))
@@ -231,3 +231,20 @@
             #"is not a sender for msg `:non-existent`"
             (cc/set-handler client :non-existent (constantly nil))))
        (cc/shutdown client)))))
+
+(deftest test-rpc-inside-rpc
+  (au/test-async
+   test-timeout
+   (ca/go
+     (let [client (cc/client (make-get-gw-url "client")
+                             (make-get-credentials "client0" "test")
+                             cg-proto :client {:silence-log? true})
+           client-chan (ca/chan)
+           handler (fn [arg metadata]
+                     42)]
+       (try
+         (cc/set-handler client :arg-string-to-int handler)
+         (let [i (au/<? (cc/<send-msg client :invert "42"))]
+           (is (= -42 i)))
+         (finally
+           (cc/shutdown client)))))))

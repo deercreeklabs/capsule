@@ -92,9 +92,12 @@
   #?(:clj (cprint-str x)
      :cljs (with-out-str (pprint/pprint x))))
 
-(defn configure-logging []
-  (logging/add-log-reporter! :println logging/println-reporter)
-  (logging/set-log-level! :debug))
+(defn configure-logging
+  ([]
+   (configure-logging :debug))
+  ([level]
+   (logging/add-log-reporter! :println logging/println-reporter)
+   (logging/set-log-level! level)))
 
 (s/defn get-current-time-ms :- s/Num
   []
@@ -411,7 +414,7 @@
      (-> acc
          (assoc (msg-record-name :rpc-success-rsp rpc)
                 (handle-rpc-success-rsp *rpc-id->rpc-info))
-         (assoc (msg-record-name :rpc-failure-rsp rpc)
+         (assoc :rpc-failure-rsp
                 (handle-rpc-failure-rsp *rpc-id->rpc-info silence-log?))))
    {} (keys (get-rpcs protocol role))))
 

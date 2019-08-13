@@ -89,6 +89,7 @@
           :msg ~msg
           :namespace ~namespace}))
 
+;; TODO: Make each macro eval to no-op if logging is disabled.
 (defmacro fatal [msg]
   (let [{:keys [line column]} (meta &form)]
     (do-log :fatal (macros/case :clj *file* :cljs nil) (str *ns*)

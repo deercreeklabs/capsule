@@ -24,7 +24,13 @@
           :subject-conn-count {:arg l/int-schema
                                :sender :gateway}
           :pong {:arg l/null-schema
-                 :sender :gateway}}})
+                 :sender :gateway}
+          :invert {:arg l/string-schema
+                   :ret l/int-schema
+                   :sender :client}
+          :arg-string-to-int {:arg l/string-schema
+                              :ret l/int-schema
+                              :sender :gateway}}})
 
 (def gateway-backend-protocol
   {:roles [:gateway :backend]

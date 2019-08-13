@@ -4,8 +4,7 @@
    [clojure.data :as data]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
-   [deercreeklabs.capsule.logging :as logging
-    :refer [debug debug-syms error info]]
+   [deercreeklabs.capsule.logging :as logging :refer [debug error info]]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]
    [deercreeklabs.tube.connection :as tc]
@@ -242,7 +241,6 @@
                                                       success-cb failure-cb)
           ^ConnInfo conn-info (@*conn-id->conn-info conn-id)
           tube-conn (.tube-conn conn-info)]
-      (debug (str "send-rpc* msg-info: " msg-info))
       (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
       (tc/send tube-conn (l/serialize msgs-union-schema (:msg msg-info)))))
 
@@ -282,7 +280,7 @@
     authenticator :- u/Authenticator
     protocol :- u/Protocol
     role :- u/Role]
-   (endpoint path authenticator protocol role default-endpoint-options))
+   (endpoint path authenticator protocol role {}))
   ([path :- s/Str
     authenticator :- u/Authenticator
     protocol :- u/Protocol
@@ -299,8 +297,9 @@
    (when-not (map? options)
      (throw (ex-info "`options` parameter must be a map."
                      (u/sym-map options))))
-   (let [{:keys [default-rpc-timeout-ms handlers
-                 on-connect on-disconnect silence-log?]} options
+   (let [{:keys [default-rpc-timeout-ms handlers on-connect
+                 on-disconnect silence-log?]} (merge default-endpoint-options
+                                                     options)
          msgs-union-schema (u/msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
          peer-msgs (u/get-msgs-name-set protocol peer-role)

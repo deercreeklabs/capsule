@@ -47,10 +47,15 @@
 (defn handle-backend-set-greeting [ce msg metadata]
   (ep/send-msg-to-all-conns ce :set-greeting msg))
 
+(defn <handle-invert [ce arg metadata]
+  (au/go
+    (let [{:keys [conn-id]} metadata
+          i (au/<? (ep/<send-msg ce conn-id :arg-string-to-int arg))]
+      (- 0 i))))
+
 (defn calc-gateway []
   (let [client-proto calc-protocols/client-gateway-protocol
         backend-proto calc-protocols/gateway-backend-protocol
-        backend-handlers {}
         client-ep (ep/endpoint
                    "client" test-authenticate client-proto :gateway
                    (u/sym-map on-connect on-disconnect))
@@ -67,12 +72,13 @@
     (ep/set-handler client-ep :request-conn-count
                     (partial handle-client-request-conn-count client-ep))
     (ep/set-handler client-ep :ping (partial handle-client-ping client-ep))
+    (ep/set-handler client-ep :invert (partial <handle-invert client-ep))
     (ep/set-handler backend-ep :set-greeting
                     (partial handle-backend-set-greeting client-ep))
     (cs/server [client-ep backend-ep])))
 
 (defn -main
   [& args]
-  (u/configure-logging)
+  (u/configure-logging :info)
   (let [gateway (calc-gateway)]
     (cs/start gateway)))

@@ -2,7 +2,7 @@
   (:require
    [bidi.bidi :as bidi]
    [deercreeklabs.capsule.endpoint :as endpoint]
-   [deercreeklabs.capsule.logging :as logging :refer [error info]]
+   [deercreeklabs.capsule.logging :as logging :refer [debug error info]]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.tube.connection :as tc]
    [deercreeklabs.tube.server :as ts]
@@ -66,4 +66,6 @@
                                           [:handle-http :http-timeout-ms])
          tube-server (ts/tube-server port on-connect on-disconnect
                                      compression-type tube-server-options)]
+     (u/configure-logging)
+     (debug "Logging configured...")
      (->CapsuleServer tube-server port endpoints))))
