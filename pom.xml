@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>deercreeklabs</groupId>
   <artifactId>capsule</artifactId>
-  <version>0.4.10</version>
+  <version>0.4.11</version>
   <name>capsule</name>
   <dependencies>
     <dependency>
@@ -69,7 +69,7 @@
     <dependency>
       <groupId>deercreeklabs</groupId>
       <artifactId>lancaster</artifactId>
-      <version>0.8.2</version>
+      <version>0.8.3</version>
     </dependency>
     <dependency>
       <groupId>org.clojure</groupId>
