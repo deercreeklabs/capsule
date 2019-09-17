@@ -69,7 +69,7 @@
     <dependency>
       <groupId>deercreeklabs</groupId>
       <artifactId>lancaster</artifactId>
-      <version>0.8.3</version>
+      <version>0.8.5</version>
     </dependency>
     <dependency>
       <groupId>org.clojure</groupId>
