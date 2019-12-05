@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>deercreeklabs</groupId>
   <artifactId>capsule</artifactId>
-  <version>0.4.13</version>
+  <version>0.4.14</version>
   <name>capsule</name>
   <dependencies>
     <dependency>
@@ -14,12 +14,12 @@
     <dependency>
       <groupId>mvxcvi</groupId>
       <artifactId>puget</artifactId>
-      <version>1.1.2</version>
+      <version>1.2.0</version>
     </dependency>
     <dependency>
       <groupId>org.clojure</groupId>
       <artifactId>clojurescript</artifactId>
-      <version>1.10.520</version>
+      <version>1.10.597</version>
     </dependency>
     <dependency>
       <groupId>clj-time</groupId>
@@ -34,7 +34,7 @@
     <dependency>
       <groupId>deercreeklabs</groupId>
       <artifactId>tube</artifactId>
-      <version>0.2.9</version>
+      <version>0.2.10</version>
     </dependency>
     <dependency>
       <groupId>net.cgrand</groupId>
@@ -49,7 +49,7 @@
     <dependency>
       <groupId>deercreeklabs</groupId>
       <artifactId>baracus</artifactId>
-      <version>0.2.3</version>
+      <version>0.2.4</version>
     </dependency>
     <dependency>
       <groupId>bidi</groupId>
@@ -69,12 +69,12 @@
     <dependency>
       <groupId>deercreeklabs</groupId>
       <artifactId>lancaster</artifactId>
-      <version>0.8.5</version>
+      <version>0.8.6</version>
     </dependency>
     <dependency>
       <groupId>org.clojure</groupId>
       <artifactId>core.async</artifactId>
-      <version>0.4.500</version>
+      <version>0.6.532</version>
     </dependency>
   </dependencies>
   <build>
