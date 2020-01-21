@@ -4,7 +4,7 @@
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.capsule.calc-protocols :as calc-protocols]
    [deercreeklabs.capsule.endpoint :as ep]
-   [deercreeklabs.capsule.logging :as logging :refer [debug]]
+   [deercreeklabs.capsule.logging :as logging :refer [debug info]]
    [deercreeklabs.capsule.server :as cs]
    [deercreeklabs.capsule.utils :as u]
    [schema.core :as s]))
@@ -53,7 +53,7 @@
           i (au/<? (ep/<send-msg ce conn-id :arg-string-to-int arg))]
       (- 0 i))))
 
-(defn calc-gateway []
+(defn run-calc-gateway []
   (let [client-proto calc-protocols/client-gateway-protocol
         backend-proto calc-protocols/gateway-backend-protocol
         client-ep (ep/endpoint
@@ -61,6 +61,8 @@
                    (u/sym-map on-connect on-disconnect))
         backend-ep (ep/endpoint
                     "backend" test-authenticate backend-proto :gateway)]
+    (u/configure-logging)
+    (info "Logging configured...")
     (ep/set-handler client-ep :add
                     (partial <handle-client-add backend-ep))
     (ep/set-handler client-ep :subtract
@@ -79,6 +81,4 @@
 
 (defn -main
   [& args]
-  (u/configure-logging :info)
-  (let [gateway (calc-gateway)]
-    (cs/start gateway)))
+  (run-calc-gateway))

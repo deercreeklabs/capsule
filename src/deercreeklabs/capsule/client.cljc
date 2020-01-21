@@ -266,27 +266,29 @@
                             (info (str "Got url: " url
                                        ". Attempting websocket connection.")))
                         rcv-chan (ca/chan rcv-queue-size)
-                        opts {:on-disconnect
-                              (fn [conn code reason]
-                                (on-disconnect this)
-                                (when-not silence-log?
-                                  (info
-                                   (str "Connection to "
-                                        (connection/get-uri conn)
-                                        " disconnected: " reason
-                                        "(" code ").")))
-                                (when-let [tube-client @*tube-client]
-                                  (tc/close tube-client)
-                                  (reset! *tube-client nil)
-                                  (when-not @*shutdown?
-                                    (ca/put! reconnect-chan true))))
-                              :on-rcv (fn on-rcv [conn data]
-                                        (ca/put! rcv-chan data))}
-                        opts (cond-> opts
+                        opts (cond-> {:on-disconnect
+                                      (fn [conn code reason]
+                                        (on-disconnect this)
+                                        (when-not silence-log?
+                                          (info
+                                           (str "Connection to "
+                                                (connection/get-uri conn)
+                                                " disconnected: " reason
+                                                "(" code ").")))
+                                        (when-let [tube-client @*tube-client]
+                                          (tc/close tube-client)
+                                          (reset! *tube-client nil)
+                                          (when-not @*shutdown?
+                                            (ca/put! reconnect-chan true))))
+                                      :on-rcv (fn on-rcv [conn data]
+                                                (ca/put! rcv-chan data))}
                                <ws-client (assoc :<ws-client
                                                  <ws-client))
+                        _ (debug (str "*** making client for " url ". opts: "
+                                      opts))
                         tube-client (au/<? (tc/<tube-client
                                             url wait-ms opts))]
+                    (debug (str "client: " (u/pprint-str tube-client)))
                     (if-not tube-client
                       (when-not @*shutdown?
                         (ca/<! (ca/timeout wait-ms))

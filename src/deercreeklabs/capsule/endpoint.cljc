@@ -81,10 +81,10 @@
           remote-addr (tc/get-remote-addr tube-conn)]
       (info (str "Opened conn " conn-id " on " path " from " remote-addr
                  ". Endpoint conn count: " @*conn-count))
-      (tc/set-on-rcv tube-conn (fn [conn data]
-                                 (on-rcv this conn data)))
-      (tc/set-on-disconnect tube-conn
-                            (partial on-disconnect* this conn-id remote-addr))
+      (tc/set-on-rcv! tube-conn (fn [conn data]
+                                  (on-rcv this conn data)))
+      (tc/set-on-disconnect! tube-conn
+                             (partial on-disconnect* this conn-id remote-addr))
       (when on-connect-cb
         (ca/go
           (on-connect-cb {:conn-id conn-id

@@ -6,6 +6,7 @@
    [deercreeklabs.baracus :as ba]
    [deercreeklabs.capsule.calc-protocols :as calc-protocols]
    [deercreeklabs.capsule.client :as cc]
+   [deercreeklabs.capsule.logging :refer [debug]]
    [deercreeklabs.capsule.test-backend :as tb]
    [deercreeklabs.capsule.utils :as u]
    [schema.core :as s])
@@ -26,7 +27,7 @@
   (fn get-credentials []
     (u/sym-map subject-id subject-secret)))
 
-(def rpc-timeout #?(:cljs 10000 :clj 1000))
+(def rpc-timeout #?(:cljs 10000 :clj 2000))
 (def test-timeout #?(:cljs 20000 :clj 2000))
 (def cg-proto calc-protocols/client-gateway-protocol)
 
@@ -55,6 +56,7 @@
    test-timeout
    (ca/go
      (let [[client backend] (client-and-backend)]
+       (is (= 1 1))
        (try
          (let [arg [1 2 3]
                rpc-ch (cc/<send-msg client :add arg)

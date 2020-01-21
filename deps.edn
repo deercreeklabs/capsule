@@ -1,14 +1,12 @@
 {:deps
  {bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
   clj-time {:mvn/version "0.15.2"}
-  deercreeklabs/baracus {:mvn/version "0.2.4"}
-  deercreeklabs/lancaster {:mvn/version "0.8.6"}
-  deercreeklabs/tube {:mvn/version "0.2.10"}
+  deercreeklabs/lancaster {:mvn/version "0.8.9"}
+  deercreeklabs/tube {:mvn/version "0.3.2"}
   mvxcvi/puget {:mvn/version "1.2.0"}
   net.cgrand/macrovich {:mvn/version "0.2.1"}
   org.clojure/clojure {:mvn/version "1.10.1"}
   org.clojure/clojurescript {:mvn/version "1.10.597"}
-  org.clojure/core.async {:mvn/version "0.6.532"}
   primitive-math {:mvn/version "0.1.6"}
   prismatic/schema {:mvn/version "1.1.12"}}
 
@@ -16,26 +14,26 @@
              "clojars" {:url "https://repo.clojars.org/"}}
 
  :aliases
- {:cider-clj {:extra-deps {cider/cider-nrepl {:mvn/version "0.21.1"}}
+ {:cider-clj {:extra-deps {cider/cider-nrepl {:mvn/version "0.23.0"}}
               :main-opts ["-m" "nrepl.cmdline" "--middleware"
                           "[cider.nrepl/cider-middleware]"]}
 
-  :cider-cljs {:extra-deps {cider/cider-nrepl {:mvn/version "0.21.1"}
-                            cider/piggieback {:mvn/version "0.4.0"}}
+  :cider-cljs {:extra-deps {cider/cider-nrepl {:mvn/version "0.23.0"}
+                            cider/piggieback {:mvn/version "0.4.2"}}
                :main-opts
                ["-m" "nrepl.cmdline" "--middleware"
                 "[cider.nrepl/cider-middleware,cider.piggieback/wrap-cljs-repl]"]}
 
-  :dev {:extra-deps {org.clojure/tools.namespace {:mvn/version "0.2.11"}}}
+  :dev {:extra-deps {org.clojure/tools.namespace {:mvn/version "0.3.1"}}}
 
   :pack {:extra-deps {pack/pack.alpha
                       {:git/url "https://github.com/juxt/pack.alpha.git"
-                       :sha "2769a6224bfb938e777906ea311b3daf7d2220f5"}}
+                       :sha "c70740ffc10805f34836da2160fa1899601fac02"}}
          :main-opts ["-m"]}
 
   :run {:main-opts ["-m" "deercreeklabs.capsule.test-gateway"]}
 
   :test {:extra-paths ["test"]
-         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-529"}
-                      lambdaisland/kaocha-cljs {:mvn/version "0.0-40"}
-                      lambdaisland/kaocha-cloverage {:mvn/version "0.0-32"}}}}}
+         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-573"}
+                      lambdaisland/kaocha-cljs {:mvn/version "0.0-68"}
+                      lambdaisland/kaocha-cloverage {:mvn/version "0.0-41"}}}}}

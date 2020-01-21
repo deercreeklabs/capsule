@@ -7,10 +7,9 @@
      (:require-macros
       [deercreeklabs.capsule.logging :refer [debug]])))
 
-(def *current-log-level (atom :error))
-(def *log-reporters (atom {}))
+(defonce *current-log-level (atom :error))
+(defonce *log-reporters (atom {}))
 (def max-log-buffer 10000)
-(def log-chan (ca/chan max-log-buffer))
 (def log-level->priority
   {:fatal 0
    :error 10
@@ -64,6 +63,7 @@
 (defn ex-msg-and-stacktrace [e]
   (str "\nException:\n" (ex-msg e) "\nStacktrace:\n" (ex-stacktrace e)))
 
+;; TODO: Make logging async (channel?) so slow reporters don't hurt performance
 (defn log* [{:keys [level] :as info}]
   (let [cur-level (get log-level->priority @*current-log-level)
         msg-level (get log-level->priority level)]

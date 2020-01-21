@@ -10,46 +10,24 @@
 
 (def default-port 8080)
 
-(defprotocol ICapsuleServer
-  (start [this])
-  (stop [this])
-  (get-conn-counts [this]))
-
-(defrecord CapsuleServer [tube-server port endpoints]
-  ICapsuleServer
-  (start [this]
-    (info (str "Starting Capsule server on port " port "..."))
-    (ts/start tube-server))
-
-  (stop [this]
-    (info "Stopping Capsule server...")
-    (ts/stop tube-server))
-
-  (get-conn-counts [this]
-    (reduce (fn [acc endpoint]
-              (let [path (endpoint/get-path endpoint)
-                    conn-count (endpoint/get-conn-count endpoint)]
-                (assoc acc path conn-count)))
-            {} endpoints)))
-
 (defn route [endpoint]
   (let [path (endpoint/get-path endpoint)
         connection-handler (fn [tube-conn]
                              (endpoint/on-connect endpoint tube-conn))]
     [path connection-handler]))
 
-(defn routes [endpoints]
+(defn endpoints->routes [endpoints]
   ["/" (apply hash-map (mapcat route endpoints))])
 
 (defn on-server-connect [routes]
-  (fn on-server-connect [conn]
+  (fn on-server-connect [conn conn-req conn-count]
     (let [uri (tc/get-uri conn)
           {:keys [handler]} (bidi/match-route routes uri)]
       (if handler
         (handler conn)
         (error (str "No handler matches for path " uri))))))
 
-(s/defn server :- (s/protocol ICapsuleServer)
+(s/defn server :- (s/fn [])
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]]
    (server endpoints default-port {}))
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]
@@ -58,14 +36,13 @@
   ([endpoints :- [(s/protocol endpoint/IEndpoint)]
     port :- s/Int
     options :- {s/Keyword s/Any}]
-   (let [routes (routes endpoints)
-         on-connect (on-server-connect routes)
-         on-disconnect (fn [conn code reason])
-         compression-type :smart
-         tube-server-options (select-keys options
-                                          [:handle-http :http-timeout-ms])
-         tube-server (ts/tube-server port on-connect on-disconnect
-                                     compression-type tube-server-options)]
-     (u/configure-logging)
-     (debug "Logging configured...")
-     (->CapsuleServer tube-server port endpoints))))
+   (let [routes (endpoints->routes endpoints)
+         ws-on-connect (on-server-connect routes)
+         logger (fn [level msg]
+                  (logging/log* {:level level
+                                 :ms (u/get-current-time-ms)
+                                 :msg (str "TUBE: " msg)}))
+         {:keys [handle-http http-timeout-ms]} options
+         config (u/sym-map handle-http http-timeout-ms logger ws-on-connect)
+         stop-server (ts/tube-server port config)]
+     stop-server)))
