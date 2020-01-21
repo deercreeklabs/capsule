@@ -56,7 +56,6 @@
    test-timeout
    (ca/go
      (let [[client backend] (client-and-backend)]
-       (is (= 1 1))
        (try
          (let [arg [1 2 3]
                rpc-ch (cc/<send-msg client :add arg)
