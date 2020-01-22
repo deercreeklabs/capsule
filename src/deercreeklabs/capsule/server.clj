@@ -42,7 +42,9 @@
                   (logging/log* {:level level
                                  :ms (u/get-current-time-ms)
                                  :msg (str "TUBE: " msg)}))
-         {:keys [handle-http http-timeout-ms]} options
-         config (u/sym-map handle-http http-timeout-ms logger ws-on-connect)
+         {:keys [handle-http http-timeout-ms
+                 certificate-str private-key-str]} options
+         config (u/sym-map handle-http http-timeout-ms logger ws-on-connect
+                           certificate-str private-key-str)
          stop-server (ts/tube-server port config)]
      stop-server)))
