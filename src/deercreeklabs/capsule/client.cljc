@@ -284,11 +284,8 @@
                                                 (ca/put! rcv-chan data))}
                                <ws-client (assoc :<ws-client
                                                  <ws-client))
-                        _ (debug (str "*** making client for " url ". opts: "
-                                      opts))
                         tube-client (au/<? (tc/<tube-client
                                             url wait-ms opts))]
-                    (debug (str "client: " (u/pprint-str tube-client)))
                     (if-not tube-client
                       (when-not @*shutdown?
                         (ca/<! (ca/timeout wait-ms))

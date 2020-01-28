@@ -164,9 +164,9 @@
       (send-msg this conn-id msg-name-kw msg)))
 
   (close-conn [this conn-id]
-    (let [conn-info (@*conn-id->conn-info conn-id)
-          tube-conn (.tube-conn ^ConnInfo conn-info)]
-      (tc/close tube-conn)))
+    (when-let [conn-info (@*conn-id->conn-info conn-id)]
+      (when-let [tube-conn (.tube-conn ^ConnInfo conn-info)]
+        (tc/close tube-conn))))
 
   (close-subject-conns [this subject-id]
     (let [conn-ids (@*subject-id->conn-ids subject-id)]
