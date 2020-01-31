@@ -266,7 +266,12 @@
                             (info (str "Got url: " url
                                        ". Attempting websocket connection.")))
                         rcv-chan (ca/chan rcv-queue-size)
-                        opts (cond-> {:on-disconnect
+                        logger (fn [level msg]
+                                 (logging/log* {:level level
+                                                :ms (u/get-current-time-ms)
+                                                :msg (str "TUBE: " msg)}))
+                        opts (cond-> {:logger logger
+                                      :on-disconnect
                                       (fn [conn code reason]
                                         (on-disconnect this)
                                         (when-not silence-log?
