@@ -1,7 +1,7 @@
 {:deps
  {bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
   clj-time {:mvn/version "0.15.2"}
-  deercreeklabs/lancaster {:mvn/version "0.8.9"}
+  deercreeklabs/lancaster {:mvn/version "0.9.0"}
   deercreeklabs/tube {:mvn/version "0.3.3"}
   mvxcvi/puget {:mvn/version "1.2.0"}
   net.cgrand/macrovich {:mvn/version "0.2.1"}
@@ -34,6 +34,6 @@
   :run {:main-opts ["-m" "deercreeklabs.capsule.test-gateway"]}
 
   :test {:extra-paths ["test"]
-         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-573"}
+         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-590"}
                       lambdaisland/kaocha-cljs {:mvn/version "0.0-68"}
                       lambdaisland/kaocha-cloverage {:mvn/version "0.0-41"}}}}}
