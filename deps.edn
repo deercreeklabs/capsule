@@ -1,7 +1,7 @@
 {:deps
  {bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
   clj-time {:mvn/version "0.15.2"}
-  deercreeklabs/lancaster {:mvn/version "0.9.0"}
+  deercreeklabs/lancaster {:mvn/version "0.9.1"}
   deercreeklabs/tube {:mvn/version "0.3.3"}
   mvxcvi/puget {:mvn/version "1.2.0"}
   net.cgrand/macrovich {:mvn/version "0.2.1"}
@@ -14,17 +14,17 @@
              "clojars" {:url "https://repo.clojars.org/"}}
 
  :aliases
- {:cider-clj {:extra-deps {cider/cider-nrepl {:mvn/version "0.23.0"}}
+ {:cider-clj {:extra-deps {cider/cider-nrepl {:mvn/version "0.24.0"}}
               :main-opts ["-m" "nrepl.cmdline" "--middleware"
                           "[cider.nrepl/cider-middleware]"]}
 
-  :cider-cljs {:extra-deps {cider/cider-nrepl {:mvn/version "0.23.0"}
+  :cider-cljs {:extra-deps {cider/cider-nrepl {:mvn/version "0.24.0"}
                             cider/piggieback {:mvn/version "0.4.2"}}
                :main-opts
                ["-m" "nrepl.cmdline" "--middleware"
                 "[cider.nrepl/cider-middleware,cider.piggieback/wrap-cljs-repl]"]}
 
-  :dev {:extra-deps {org.clojure/tools.namespace {:mvn/version "0.3.1"}}}
+  :dev {:extra-deps {org.clojure/tools.namespace {:mvn/version "1.0.0"}}}
 
   :pack {:extra-deps {pack/pack.alpha
                       {:git/url "https://github.com/juxt/pack.alpha.git"
@@ -34,6 +34,6 @@
   :run {:main-opts ["-m" "deercreeklabs.capsule.test-gateway"]}
 
   :test {:extra-paths ["test"]
-         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-590"}
-                      lambdaisland/kaocha-cljs {:mvn/version "0.0-68"}
+         :extra-deps {lambdaisland/kaocha {:mvn/version "0.0-601"}
+                      lambdaisland/kaocha-cljs {:mvn/version "0.0-71"}
                       lambdaisland/kaocha-cloverage {:mvn/version "0.0-41"}}}}}
