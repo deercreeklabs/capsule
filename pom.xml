@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>deercreeklabs</groupId>
   <artifactId>capsule</artifactId>
-  <version>0.4.19</version>
+  <version>0.4.20</version>
   <name>capsule</name>
   <dependencies>
     <dependency>
@@ -64,7 +64,7 @@
     <dependency>
       <groupId>deercreeklabs</groupId>
       <artifactId>lancaster</artifactId>
-      <version>0.9.0</version>
+      <version>0.9.1</version>
     </dependency>
   </dependencies>
   <build>
