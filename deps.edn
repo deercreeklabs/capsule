@@ -2,7 +2,7 @@
  {bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
   clj-time {:mvn/version "0.15.2"}
   deercreeklabs/lancaster {:mvn/version "0.9.2"}
-  deercreeklabs/tube {:mvn/version "0.3.5"}
+  deercreeklabs/tube {:mvn/version "0.3.6"}
   mvxcvi/puget {:mvn/version "1.2.0"}
   net.cgrand/macrovich {:mvn/version "0.2.1"}
   org.clojure/clojure {:mvn/version "1.10.1"}
