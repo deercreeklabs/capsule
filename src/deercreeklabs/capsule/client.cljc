@@ -149,12 +149,12 @@
         (case msg
           {:login-rsp {:was-successful true}}
           (do
-            (when-not silence-log? (info "Login succeeded."))
+            (when-not silence-log? (info "Capsule login succeeded."))
             true)
 
           {:login-rsp {:was-successful false}}
           (do
-            (when-not silence-log? (info "Login failed."))
+            (when-not silence-log? (info "Capsule login failed."))
             false)
 
           (error (str "Got wrong login rsp msg: " msg))))))
