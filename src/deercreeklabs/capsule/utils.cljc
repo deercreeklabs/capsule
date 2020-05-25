@@ -428,11 +428,15 @@
           (when (> (get-current-time-ms) (:failure-time-ms rpc-info))
             (swap! *rpc-id->rpc-info dissoc rpc-id)
             (when-let [failure-cb (:failure-cb rpc-info)]
-              (let [{:keys [rpc-name-kw arg timeout-ms]} rpc-info]
+              (let [{:keys [rpc-name-kw arg timeout-ms]} rpc-info
+                    arg-str* (str arg)
+                    arg-str (if (> (count arg-str*) 1000)
+                              (str (subs arg-str* 0 1000) "... (truncated)")
+                              arg-str*)]
                 (failure-cb
-                 (ex-info (str "RPC `" rpc-name-kw "` with arg `" arg "` timed "
-                               "out after " timeout-ms " milliseconds.")
-                          (dissoc rpc-info :success-cb :failure-cb)))))))
+                 (ex-info (str "RPC `" rpc-name-kw "` with arg `" arg-str
+                               "` timed out after " timeout-ms " milliseconds.")
+                          (sym-map arg-str rpc-name-kw timeout-ms)))))))
         (ca/<! (ca/timeout 1000)))
       (catch #?(:clj Exception :cljs js/Error) e
         (error (str "Unexpected error in gc loop: "
