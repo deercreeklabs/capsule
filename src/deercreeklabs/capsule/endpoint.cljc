@@ -239,10 +239,12 @@
           {:keys [msg-info rpc-info]} (u/rpc-msg-info rpc-name-kw rpc-id
                                                       timeout-ms arg
                                                       success-cb failure-cb)
-          ^ConnInfo conn-info (@*conn-id->conn-info conn-id)
-          tube-conn (.tube-conn conn-info)]
-      (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
-      (tc/send tube-conn (l/serialize msgs-union-schema (:msg msg-info)))))
+          ^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
+      (when conn-info
+        (let [tube-conn (.tube-conn conn-info)]
+          (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
+          (tc/send tube-conn (l/serialize msgs-union-schema
+                                          (:msg msg-info)))))))
 
   (send-msg* [this conn-id msg-name-kw arg timeout-ms]
     (let [msg-rec-name (u/msg-record-name :msg msg-name-kw)
