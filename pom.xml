@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>deercreeklabs</groupId>
   <artifactId>capsule</artifactId>
-  <version>0.4.28</version>
+  <version>0.4.29</version>
   <name>capsule</name>
   <dependencies>
     <dependency>
@@ -34,7 +34,7 @@
     <dependency>
       <groupId>deercreeklabs</groupId>
       <artifactId>tube</artifactId>
-      <version>0.3.8</version>
+      <version>0.4.0</version>
     </dependency>
     <dependency>
       <groupId>net.cgrand</groupId>
