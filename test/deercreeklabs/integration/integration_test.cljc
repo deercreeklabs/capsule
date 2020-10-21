@@ -17,7 +17,7 @@
 ;; Use this instead of fixtures, which are hard to make work w/ async testing.
 (s/set-fn-validation! true)
 
-(u/configure-logging :info)
+(u/configure-logging :debug)
 
 (defn make-get-gw-url [endpoint]
   (fn get-gw-url []
@@ -36,26 +36,31 @@
     (let [str-len (count s)]
       (subs s 0 (min len str-len)))))
 
-(defn client-and-backend
-  ([] (client-and-backend nil))
+(defn <client-and-backend
+  ([] (<client-and-backend nil))
   ([set-greeting-ch]
-   (let [set-greeting-ch (or set-greeting-ch (ca/chan))
-         backend (tb/backend (make-get-gw-url "backend")
-                             (make-get-credentials "backend" "test")
-                             {:silence-log? false})
-         options {:handlers {:set-greeting (fn [msg metadata]
-                                             (ca/put! set-greeting-ch msg))}
-                  :silence-log? false}
-         client (cc/client (make-get-gw-url "client")
-                           (make-get-credentials "client1" "test")
-                           cg-proto :client options)]
-     [client backend])))
+   (au/go
+     (let [set-greeting-ch (or set-greeting-ch (ca/chan))
+           backend (tb/backend (make-get-gw-url "backend")
+                               (make-get-credentials "backend" "test")
+                               {:silence-log? false})
+           connected-ch (ca/chan)
+           options {:handlers {:set-greeting (fn [msg metadata]
+                                               (ca/put! set-greeting-ch msg))}
+                    :on-connect (fn [conn]
+                                  (ca/put! connected-ch true))
+                    :silence-log? false}
+           client (cc/client (make-get-gw-url "client")
+                             (make-get-credentials "client1" "test")
+                             cg-proto :client options)]
+       (au/<? connected-ch)
+       [client backend]))))
 
 (deftest test-calculate
   (au/test-async
    test-timeout
    (ca/go
-     (let [[client backend] (client-and-backend)]
+     (let [[client backend] (au/<? (<client-and-backend))]
        (try
          (let [arg [1 2 3]
                rpc-ch (cc/<send-msg client :add arg)
@@ -81,22 +86,26 @@
          (finally
            (cc/shutdown client)))))))
 
-(deftest test-send-msg-to-all-conns
+(deftest ^:this test-send-msg-to-all-conns
   (au/test-async
    test-timeout
    (ca/go
      (let [client0-ch (ca/chan)
            client1-ch (ca/chan)
            client2-ch (ca/chan)
-           [client0 backend] (client-and-backend client0-ch)
+           connected1-ch (ca/chan)
+           connected2-ch (ca/chan)
+           [client0 backend] (au/<? (<client-and-backend client0-ch))
            client1-opts {:handlers {:set-greeting (fn [msg metadata]
-                                                    (ca/put! client1-ch
-                                                             msg))}
-                         :silence-log? true}
+                                                    (ca/put! client1-ch msg))}
+                         :on-connect (fn [conn]
+                                       (ca/put! connected1-ch true))
+                         :silence-log? false}
            client2-opts {:handlers {:set-greeting (fn [msg metadata]
-                                                    (ca/put! client2-ch
-                                                             msg))}
-                         :silence-log? true}
+                                                    (ca/put! client2-ch msg))}
+                         :on-connect (fn [conn]
+                                       (ca/put! connected2-ch true))
+                         :silence-log? false}
            client1 (cc/client (make-get-gw-url "client")
                               (make-get-credentials "client1" "test")
                               cg-proto :client client1-opts)
@@ -104,6 +113,9 @@
                               (make-get-credentials "client2" "test")
                               cg-proto :client client2-opts)
            expected-msg "Hello"]
+       ;; Wait for everyone to connect
+       (is (au/<? connected1-ch))
+       (is (au/<? connected2-ch))
        (try
          (cc/<send-msg client2 :request-greeting-update nil)
          (let [[v ch] (au/alts? [client0-ch (ca/timeout rpc-timeout)])]

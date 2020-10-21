@@ -4,6 +4,7 @@
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.capsule.calc-protocols :as calc-protocols]
    [deercreeklabs.capsule.client :as cc]
+   [deercreeklabs.capsule.logging :as log]
    [deercreeklabs.capsule.utils :as u]
    [schema.core :as s]))
 
@@ -16,6 +17,7 @@
   (apply - arg))
 
 (defn handle-request-greeting-update [client msg metadata]
+  (log/debug "BE got RGU")
   (cc/send-msg client :set-greeting greeting))
 
 (defn backend

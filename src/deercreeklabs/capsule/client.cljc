@@ -451,8 +451,7 @@
    (when-not (map? options)
      (throw (ex-info "`options` parameter must be a map."
                      (u/sym-map options))))
-   (let [opts (merge default-client-options options)
-         {:keys [default-rpc-timeout-ms
+   (let [{:keys [default-rpc-timeout-ms
                  get-credentials-timeout-ms
                  get-url-timeout-ms
                  rcv-queue-size
@@ -461,7 +460,7 @@
                  on-connect
                  on-disconnect
                  handlers
-                 <ws-client]} opts
+                 <ws-client]} (merge default-client-options options)
          *rcv-chan (atom nil)
          send-chan (ca/chan send-queue-size)
          reconnect-chan (ca/chan)

@@ -4,18 +4,16 @@
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.capsule.calc-protocols :as calc-protocols]
    [deercreeklabs.capsule.endpoint :as ep]
-   [deercreeklabs.capsule.logging :as logging :refer [debug info]]
+   [deercreeklabs.capsule.logging :as log]
    [deercreeklabs.capsule.server :as cs]
    [deercreeklabs.capsule.utils :as u]
    [schema.core :as s]))
 
-(defn on-connect [{:keys [conn-id peer-id] :as info}]
-  (info "Client connected. Info: " (u/pprint-str info))
-  nil)
+(defn on-connect [conn conn-count]
+  (log/info "Client connected."))
 
-(defn on-disconnect [{:keys [conn-id peer-id] :as info}]
-  (info "Client disconnected. Info: " (u/pprint-str info))
-  nil)
+(defn on-disconnect [conn code reason conn-count]
+  (log/info "Client disconnected."))
 
 (defn test-authenticate [subject-id subject-secret metadata]
   (boolean (and (#{"test" "client0" "client1" "client2" "backend"} subject-id)
@@ -32,6 +30,7 @@
 
 (defn handle-client-request-greeting-update [be msg metadata]
   (let [conn-id (first (ep/get-subject-conn-ids be "backend"))]
+    (log/debug (str "GW got RGU. BE is on conn-id " conn-id))
     (ep/send-msg be conn-id :request-greeting-update nil)))
 
 (defn handle-client-request-conn-count [ce msg metadata]
@@ -45,6 +44,7 @@
     (ep/send-msg ce conn-id :pong nil)))
 
 (defn handle-backend-set-greeting [ce msg metadata]
+  (log/debug "GW got SG.")
   (ep/send-msg-to-all-conns ce :set-greeting msg))
 
 (defn <handle-invert [ce arg metadata]
@@ -60,9 +60,13 @@
                    "client" test-authenticate client-proto :gateway
                    (u/sym-map on-connect on-disconnect))
         backend-ep (ep/endpoint
-                    "backend" test-authenticate backend-proto :gateway)]
+                    "backend" test-authenticate backend-proto :gateway
+                    {:on-connect (fn [conn conn-count]
+                                   (log/info "Backend connected."))
+                     :on-disconnect (fn [conn code reason conn-count]
+                                      (log/info "Backend disconnected."))})]
     (u/configure-logging)
-    (info "Logging configured...")
+    (log/info "Logging configured...")
     (ep/set-handler client-ep :add
                     (partial <handle-client-add backend-ep))
     (ep/set-handler client-ep :subtract

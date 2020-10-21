@@ -29,6 +29,7 @@
   (get-subject-conn-ids [this subject-id])
   (get-all-conn-ids [this subject-id])
   (on-connect [this tube-conn])
+  (on-disconnect [this tube-conn code reason])
   (on-rcv [this tube-conn data])
   (<send-msg
     [this conn-id msg-name-kw arg]
@@ -50,8 +51,7 @@
   (<handle-login-req* [this msg metadata])
   (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms])
   (send-msg* [this conn-id msg-name-kw msg timeout-ms])
-  (start-gc-loop* [this])
-  (on-disconnect* [this conn-id remote-addr tube-conn code reason]))
+  (start-gc-loop* [this]))
 
 (defrecord Endpoint [path authenticator msgs-union-schema default-rpc-timeout-ms
                      role msgs rpcs peer-role peer-msgs peer-rpcs on-connect-cb
@@ -78,17 +78,32 @@
   (on-connect [this tube-conn]
     (swap! *conn-count #(inc (int %)))
     (let [conn-id (tc/get-conn-id tube-conn)
-          remote-addr (tc/get-remote-addr tube-conn)]
+          remote-addr (tc/get-remote-addr tube-conn)
+          conn-count @*conn-count]
       (info (str "Opened conn " conn-id " on " path " from " remote-addr
-                 ". Endpoint conn count: " @*conn-count))
+                 ". Endpoint conn count: " conn-count))
       (tc/set-on-rcv! tube-conn (fn [conn data]
                                   (on-rcv this conn data)))
-      (tc/set-on-disconnect! tube-conn
-                             (partial on-disconnect* this conn-id remote-addr))
       (when on-connect-cb
         (ca/go
-          (on-connect-cb {:conn-id conn-id
-                          :peer-id remote-addr})))))
+          (on-connect-cb tube-conn conn-count)))))
+
+  (on-disconnect [this tube-conn code reason]
+    (swap! *conn-count #(dec (int %)))
+    (let [conn-id (tc/get-conn-id tube-conn)
+          remote-addr (tc/get-remote-addr tube-conn)
+          conn-count @*conn-count
+          conn-info (@*conn-id->conn-info conn-id )
+          subject-id (.subject-id conn-info)]
+      (swap! *conn-id->conn-info dissoc conn-id)
+      (swap! *subject-id->conn-ids update subject-id
+             (fn [conn-ids]
+               (remove #(= conn-id %) conn-ids)))
+      (info (str "Closed conn " conn-id " on " path " from " remote-addr
+                 ". Endpoint conn count: " conn-count))
+      (when on-disconnect-cb
+        (ca/go
+          (on-disconnect-cb tube-conn code reason conn-count)))))
 
   (on-rcv [this tube-conn data]
     (try
@@ -161,6 +176,9 @@
 
   (send-msg-to-all-conns [this msg-name-kw msg]
     (doseq [[conn-id conn-info] @*conn-id->conn-info]
+      (info (str "==================== send-msg-to-all-conns:\n"
+                 (u/pprint-str
+                  (u/sym-map conn-id conn-info))))
       (send-msg this conn-id msg-name-kw msg)))
 
   (close-conn [this conn-id]
@@ -254,25 +272,6 @@
         (let [tube-conn (.tube-conn conn-info)]
           (tc/send tube-conn (l/serialize msgs-union-schema msg))))))
 
-  (on-disconnect* [this conn-id remote-addr tube-conn code reason]
-    (swap! *conn-count #(dec (int %)))
-    (info (str "Closed conn " conn-id " on " path " from " remote-addr
-               ". Endpoint conn count: "  @*conn-count))
-    (when on-disconnect-cb
-      (ca/go
-        (on-disconnect-cb {:conn-id conn-id
-                           :peer-id remote-addr})))
-    (when-let [^ConnInfo conn-info (@*conn-id->conn-info conn-id)]
-      (swap! *conn-id->conn-info dissoc conn-id)
-      (when-let [subject-id (.subject-id conn-info)]
-        (swap! *subject-id->conn-ids
-               (fn [m]
-                 (let [conn-ids (m subject-id)
-                       new-conn-ids (disj conn-ids conn-id)]
-                   (if (pos? (count new-conn-ids))
-                     (assoc m subject-id new-conn-ids)
-                     (dissoc m subject-id))))))))
-
   (start-gc-loop* [this]
     (let []
       (u/start-gc-loop *shutdown? *rpc-id->rpc-info))))
@@ -299,9 +298,11 @@
    (when-not (map? options)
      (throw (ex-info "`options` parameter must be a map."
                      (u/sym-map options))))
-   (let [{:keys [default-rpc-timeout-ms handlers on-connect
-                 on-disconnect silence-log?]} (merge default-endpoint-options
-                                                     options)
+   (let [{:keys [default-rpc-timeout-ms
+                 handlers
+                 on-connect
+                 on-disconnect
+                 silence-log?]} (merge default-endpoint-options options)
          msgs-union-schema (u/msgs-union-schema protocol)
          peer-role (u/get-peer-role protocol role)
          peer-msgs (u/get-msgs-name-set protocol peer-role)
