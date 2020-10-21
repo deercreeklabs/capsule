@@ -6,7 +6,7 @@
    [deercreeklabs.baracus :as ba]
    [deercreeklabs.capsule.calc-protocols :as calc-protocols]
    [deercreeklabs.capsule.client :as cc]
-   [deercreeklabs.capsule.logging :refer [debug]]
+   [deercreeklabs.capsule.logging :as log]
    [deercreeklabs.capsule.test-backend :as tb]
    [deercreeklabs.capsule.utils :as u]
    [schema.core :as s])
@@ -86,7 +86,7 @@
          (finally
            (cc/shutdown client)))))))
 
-(deftest ^:this test-send-msg-to-all-conns
+(deftest test-send-msg-to-all-conns
   (au/test-async
    test-timeout
    (ca/go
@@ -139,6 +139,8 @@
    (ca/go
      (let [client0-conn-count-chan (ca/chan)
            client1-conn-count-chan (ca/chan)
+           client1a-login-result-ch (ca/chan)
+           client1b-login-result-ch (ca/chan)
            client0-opts {:handlers {:subject-conn-count
                                     (fn [msg metadata]
                                       (ca/put! client0-conn-count-chan
@@ -154,10 +156,18 @@
                               cg-proto :client client0-opts)
            client1a (cc/client (make-get-gw-url "client")
                                (make-get-credentials "client1" "test")
-                               cg-proto :client client1-opts)
+                               cg-proto :client
+                               (assoc client1-opts
+                                      :on-login-result
+                                      #(ca/put! client1a-login-result-ch %)))
            client1b (cc/client (make-get-gw-url "client")
                                (make-get-credentials "client1" "test")
-                               cg-proto :client client1-opts)]
+                               cg-proto :client
+                               (assoc client1-opts
+                                      :on-login-result
+                                      #(ca/put! client1b-login-result-ch %)))]
+       (is (true? (au/<? client1a-login-result-ch)))
+       (is (true? (au/<? client1b-login-result-ch)))
        (try
          (cc/send-msg client1a :request-conn-count nil)
          (dotimes [i 2]

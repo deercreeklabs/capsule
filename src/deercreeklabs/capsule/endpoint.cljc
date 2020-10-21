@@ -4,7 +4,7 @@
    [clojure.data :as data]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
-   [deercreeklabs.capsule.logging :as logging :refer [debug error info]]
+   [deercreeklabs.capsule.logging :as log]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]
    [deercreeklabs.tube.connection :as tc]
@@ -80,8 +80,8 @@
     (let [conn-id (tc/get-conn-id tube-conn)
           remote-addr (tc/get-remote-addr tube-conn)
           conn-count @*conn-count]
-      (info (str "Opened conn " conn-id " on " path " from " remote-addr
-                 ". Endpoint conn count: " conn-count))
+      (log/info (str "Opened conn " conn-id " on " path " from " remote-addr
+                     ". Endpoint conn count: " conn-count))
       (tc/set-on-rcv! tube-conn (fn [conn data]
                                   (on-rcv this conn data)))
       (when on-connect-cb
@@ -93,14 +93,20 @@
     (let [conn-id (tc/get-conn-id tube-conn)
           remote-addr (tc/get-remote-addr tube-conn)
           conn-count @*conn-count
-          conn-info (@*conn-id->conn-info conn-id )
-          subject-id (.subject-id conn-info)]
+          conn-info (@*conn-id->conn-info conn-id)
+          subject-id (when conn-info
+                       (.subject-id conn-info))]
       (swap! *conn-id->conn-info dissoc conn-id)
-      (swap! *subject-id->conn-ids update subject-id
-             (fn [conn-ids]
-               (remove #(= conn-id %) conn-ids)))
-      (info (str "Closed conn " conn-id " on " path " from " remote-addr
-                 ". Endpoint conn count: " conn-count))
+      (when subject-id
+        (swap! *subject-id->conn-ids
+               (fn  [m]
+                 (let [conn-ids (get m subject-id)
+                       new-conn-ids (disj conn-ids conn-id)]
+                   (if (seq new-conn-ids)
+                     (assoc m subject-id new-conn-ids)
+                     (dissoc m subject-id))))))
+      (log/info (str "Closed conn " conn-id " on " path " from " remote-addr
+                     ". Endpoint conn count: " conn-count))
       (when on-disconnect-cb
         (ca/go
           (on-disconnect-cb tube-conn code reason conn-count)))))
@@ -126,7 +132,8 @@
                         *msg-rec-name->handler)
           (do-schema-negotiation* this conn-id tube-conn data)))
       (catch #?(:clj Exception :cljs js/Error) e
-        (error (str "Error in on-rcv: " (logging/ex-msg-and-stacktrace e))))))
+        (log/error (str "Error in on-rcv: "
+                        (log/ex-msg-and-stacktrace e))))))
 
   (<send-msg [this conn-id msg-name-kw arg]
     (<send-msg this conn-id msg-name-kw arg default-rpc-timeout-ms))
@@ -176,9 +183,6 @@
 
   (send-msg-to-all-conns [this msg-name-kw msg]
     (doseq [[conn-id conn-info] @*conn-id->conn-info]
-      (info (str "==================== send-msg-to-all-conns:\n"
-                 (u/pprint-str
-                  (u/sym-map conn-id conn-info))))
       (send-msg this conn-id msg-name-kw msg)))
 
   (close-conn [this conn-id]
@@ -249,8 +253,8 @@
                          #{conn-id})))
               (sender rsp))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (error (str "Error in <handle-login-req*: "
-                      (logging/ex-msg-and-stacktrace e)))))))
+          (log/error (str "Error in <handle-login-req*: "
+                          (log/ex-msg-and-stacktrace e)))))))
 
   (send-rpc* [this conn-id rpc-name-kw arg success-cb failure-cb timeout-ms]
     (let [rpc-id (u/get-rpc-id* *rpc-id)

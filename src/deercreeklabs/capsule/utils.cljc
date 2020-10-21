@@ -6,7 +6,7 @@
    [clojure.string :as str]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
-   [deercreeklabs.capsule.logging :as logging :refer [debug debug-syms error]]
+   [deercreeklabs.capsule.logging :as log]
    [deercreeklabs.lancaster :as l]
    #?(:clj [puget.printer :refer [cprint-str]])
    [deercreeklabs.tube.connection :as tc]
@@ -62,6 +62,7 @@
    (s/optional-key :silence-log?) s/Bool
    (s/optional-key :on-connect) (s/=> s/Any CapsuleClient)
    (s/optional-key :on-disconnect) (s/=> s/Any CapsuleClient)
+   (s/optional-key :on-login-result) (s/=> s/Any CapsuleClient)
    (s/optional-key :handlers) HandlerMap
    (s/optional-key :<ws-client) (s/=> s/Any)})
 (def EndpointConnectionInfo
@@ -96,8 +97,8 @@
   ([]
    (configure-logging :debug))
   ([level]
-   (logging/add-log-reporter! :println logging/println-reporter)
-   (logging/set-log-level! level)))
+   (log/add-log-reporter! :println log/println-reporter)
+   (log/set-log-level! level)))
 
 (s/defn get-current-time-ms :- s/Num
   []
@@ -307,8 +308,8 @@
     (try
       (handler msg metadata)
       (catch #?(:clj Exception :cljs js/Error) e
-        (error (str "Error in handler for " msg-name ". "
-                    (logging/ex-msg-and-stacktrace e)))))))
+        (log/error (str "Error in handler for " msg-name ". "
+                        (log/ex-msg-and-stacktrace e)))))))
 
 (defn handle-rpc-success-rsp [*rpc-id->rpc-info]
   (fn handle-rpc-success-rsp [msg metadata]
@@ -327,13 +328,13 @@
                          arg "\n  Error msg: " error-str)]
       (swap! *rpc-id->rpc-info dissoc rpc-id)
       (when-not silence-log?
-        (error error-msg))
+        (log/error error-msg))
       (when failure-cb
         (failure-cb (ex-info error-msg msg))))))
 
 (defn throw-cant-serialize [rsp rpc-name e]
   (let [{:keys [orig-e]} (ex-data e)
-        orig-msg (logging/ex-msg orig-e)
+        orig-msg (log/ex-msg orig-e)
         return-value (:ret rsp)]
     (throw (ex-info (str "Can't serialize return value for RPC `" rpc-name "`.")
                     (sym-map return-value rpc-name orig-e orig-msg)))))
@@ -346,10 +347,10 @@
           {:keys [sender]} metadata]
       (try
         (let [handler-ret (handler arg metadata)
-              fail #(let [error-str (logging/ex-msg-and-stacktrace %)]
-                      (error (str "Error in handle-rpc for `" rpc-name-kw
-                                  "`. RPC arg: `" arg "`. Error: "
-                                  error-str))
+              fail #(let [error-str (log/ex-msg-and-stacktrace %)]
+                      (log/error (str "Error in handle-rpc for `" rpc-name-kw
+                                      "`. RPC arg: `" arg "`. Error: "
+                                      error-str))
                       (sender {:rpc-failure-rsp (sym-map rpc-id error-str)}))
               send-ret (fn [ret]
                          (try
@@ -369,9 +370,9 @@
             (send-ret handler-ret)
             (ca/take! handler-ret send-ret)))
         (catch #?(:clj Exception :cljs js/Error) e
-          (error (str "Error in handle-rpc for " rpc-name-kw ": "
-                      (logging/ex-msg-and-stacktrace e)))
-          (let [error-str (logging/ex-msg-and-stacktrace e)]
+          (log/error (str "Error in handle-rpc for " rpc-name-kw ": "
+                          (log/ex-msg-and-stacktrace e)))
+          (let [error-str (log/ex-msg-and-stacktrace e)]
             (sender {:rpc-failure-rsp (sym-map rpc-id error-str)})))))))
 
 (defn set-rpc-handler
@@ -439,5 +440,5 @@
                           (sym-map arg-str rpc-name-kw timeout-ms)))))))
         (ca/<! (ca/timeout 1000)))
       (catch #?(:clj Exception :cljs js/Error) e
-        (error (str "Unexpected error in gc loop: "
-                    (logging/ex-msg-and-stacktrace e)))))))
+        (log/error (str "Unexpected error in gc loop: "
+                        (log/ex-msg-and-stacktrace e)))))))

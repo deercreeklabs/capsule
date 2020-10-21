@@ -17,7 +17,6 @@
   (apply - arg))
 
 (defn handle-request-greeting-update [client msg metadata]
-  (log/debug "BE got RGU")
   (cc/send-msg client :set-greeting greeting))
 
 (defn backend

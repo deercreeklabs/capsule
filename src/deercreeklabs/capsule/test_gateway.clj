@@ -30,7 +30,6 @@
 
 (defn handle-client-request-greeting-update [be msg metadata]
   (let [conn-id (first (ep/get-subject-conn-ids be "backend"))]
-    (log/debug (str "GW got RGU. BE is on conn-id " conn-id))
     (ep/send-msg be conn-id :request-greeting-update nil)))
 
 (defn handle-client-request-conn-count [ce msg metadata]
@@ -44,7 +43,6 @@
     (ep/send-msg ce conn-id :pong nil)))
 
 (defn handle-backend-set-greeting [ce msg metadata]
-  (log/debug "GW got SG.")
   (ep/send-msg-to-all-conns ce :set-greeting msg))
 
 (defn <handle-invert [ce arg metadata]

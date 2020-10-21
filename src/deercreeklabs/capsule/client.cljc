@@ -3,8 +3,7 @@
    [clojure.core.async :as ca]
    [deercreeklabs.async-utils :as au]
    [deercreeklabs.baracus :as ba]
-   [deercreeklabs.capsule.logging :as logging
-    :refer [debug debug-syms error info]]
+   [deercreeklabs.capsule.logging :as log]
    [deercreeklabs.capsule.utils :as u]
    [deercreeklabs.lancaster :as l]
    [deercreeklabs.tube.client :as tc]
@@ -23,10 +22,10 @@
    :send-queue-size 1000
    :silence-log? false
    :on-connect (fn [capsule-client]
-                 (info "Client connected.")
+                 (log/info "Client connected.")
                  nil)
    :on-disconnect (fn [capsule-client]
-                    (info "Client disconnected.")
+                    (log/info "Client disconnected.")
                     nil)})
 
 (defprotocol ICapsuleClient
@@ -62,9 +61,9 @@
      get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
      msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
      rcv-queue-size send-queue-size silence-log? on-connect on-disconnect
-     role msgs rpcs peer-role peer-msgs peer-rpcs *url->server-fp *server-schema
-     *rpc-id *tube-client *credentials *shutdown? *rpc-id->rpc-info
-     *msg-rec-name->handler]
+     on-login-result role msgs rpcs peer-role peer-msgs peer-rpcs
+     *url->server-fp *server-schema *rpc-id *tube-client *credentials
+     *shutdown? *rpc-id->rpc-info *msg-rec-name->handler]
 
   ICapsuleClient
   (<send-msg [this msg-name-kw arg]
@@ -124,7 +123,6 @@
           {:keys [msg-info rpc-info]} (u/rpc-msg-info rpc-name-kw rpc-id
                                                       timeout-ms arg
                                                       success-cb failure-cb)]
-      (debug (str "send-rpc* msg-info: " msg-info))
       (if (ca/offer! send-chan msg-info)
         (swap! *rpc-id->rpc-info assoc rpc-id rpc-info)
         (when failure-cb
@@ -149,15 +147,19 @@
         (case msg
           {:login-rsp {:was-successful true}}
           (do
-            (when-not silence-log? (info "Capsule login succeeded."))
+            (when-not silence-log? (log/info "Capsule login succeeded."))
+            (when on-login-result
+              (on-login-result true))
             true)
 
           {:login-rsp {:was-successful false}}
           (do
-            (when-not silence-log? (info "Capsule login failed."))
+            (when-not silence-log? (log/info "Capsule login failed."))
+            (when on-login-result
+              (on-login-result false))
             false)
 
-          (error (str "Got wrong login rsp msg: " msg))))))
+          (log/error (str "Got wrong login rsp msg: " msg))))))
 
   (<do-auth-w-creds* [this tube-client rcv-chan credentials]
     (au/go
@@ -166,7 +168,7 @@
             [success? ch] (au/alts? [timeout-ch login-ch])]
         (if (= timeout-ch ch)
           (do
-            (error "Authentication timed out.")
+            (log/error "Authentication timed out.")
             false)
           (if-not success?
             (do
@@ -188,8 +190,8 @@
                 false
                 credentials))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (error (str "Error in <get-credentials: "
-                      (logging/ex-msg-and-stacktrace e)))
+          (log/error (str "Error in <get-credentials: "
+                          (log/ex-msg-and-stacktrace e)))
           false))))
 
   (<get-credentials-and-do-auth* [this tube-client rcv-chan]
@@ -212,10 +214,10 @@
                                         credentials))
             true
             (do
-              (error "Authentication failed.")
+              (log/error "Authentication failed.")
               false)))
         (do
-          (error "<get-credentials* failed.")
+          (log/error "<get-credentials* failed.")
           false))))
 
   (<do-auth* [this tube-client rcv-chan]
@@ -238,7 +240,8 @@
                 false
                 url))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (error (str "Error in <get-url: " (logging/ex-msg-and-stacktrace e)))
+          (log/error (str "Error in <get-url: "
+                          (log/ex-msg-and-stacktrace e)))
           false))))
 
   (<connect* [this <ws-client]
@@ -258,24 +261,25 @@
                   (recur new-wait-ms))
                 (if-not (string? url)
                   (do
-                    (error (str "<get-url* did not return a string, returned: "
-                                url))
+                    (log/error
+                     (str "<get-url* did not return a string, returned: " url))
                     (ca/<! (ca/timeout wait-ms))
                     (recur new-wait-ms))
                   (let [_ (when-not silence-log?
-                            (info (str "Got url: " url
-                                       ". Attempting websocket connection.")))
+                            (log/info
+                             (str "Got url: " url
+                                  ". Attempting websocket connection.")))
                         rcv-chan (ca/chan rcv-queue-size)
                         logger (fn [level msg]
-                                 (logging/log* {:level level
-                                                :ms (u/get-current-time-ms)
-                                                :msg (str "TUBE: " msg)}))
+                                 (log/log* {:level level
+                                            :ms (u/get-current-time-ms)
+                                            :msg (str "TUBE: " msg)}))
                         opts (cond-> {:logger logger
                                       :on-disconnect
                                       (fn [conn code reason]
                                         (on-disconnect this)
                                         (when-not silence-log?
-                                          (info
+                                          (log/info
                                            (str "Connection to "
                                                 (connection/get-uri conn)
                                                 " disconnected: " reason
@@ -325,11 +329,11 @@
                 (if success?
                   (on-connect this)
                   (when-not @*shutdown?
-                    (error "Client failed to reconnect. Shutting down.")
+                    (log/error "Client failed to reconnect. Shutting down.")
                     (shutdown this)))))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (error (str "Unexpected error in connect loop: "
-                      (logging/ex-msg-and-stacktrace e)))
+          (log/error (str "Unexpected error in connect loop: "
+                          (log/ex-msg-and-stacktrace e)))
           (shutdown this)))))
 
   (<do-schema-negotiation* [this tube-client rcv-chan url]
@@ -370,8 +374,8 @@
                     (reset! *server-schema (l/json->schema server-pcf)))
                   (recur true))))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (error (str "Schema negotiation failed: "
-                      (logging/ex-msg-and-stacktrace e)))
+          (log/error (str "Schema negotiation failed: "
+                          (log/ex-msg-and-stacktrace e)))
           false))))
 
   (start-send-loop* [this]
@@ -397,8 +401,8 @@
                               (ca/<! (ca/timeout 100))
                               (recur))))))))))))
         (catch #?(:clj Exception :cljs js/Error) e
-          (error (str "Unexpected error in send loop: "
-                      (logging/ex-msg-and-stacktrace e)))))))
+          (log/error (str "Unexpected error in send loop: "
+                          (log/ex-msg-and-stacktrace e)))))))
 
   (start-gc-loop* [this]
     (u/start-gc-loop *shutdown? *rpc-id->rpc-info))
@@ -412,18 +416,17 @@
               (when (= rcv-chan ch)
                 (let [conn-id 0 ;; there is only one connection
                       sender (fn [msg]
-                               (debug (str "sender. msg: " msg))
                                (when-not (ca/offer! send-chan (u/sym-map msg))
-                                 (error (str "RPC rsp cannot be sent. "
-                                             "Queue is full."))))]
+                                 (log/error (str "RPC rsp cannot be sent. "
+                                                 "Queue is full."))))]
                   (u/handle-rcv :client conn-id sender (name peer-role)
                                 (name peer-role) data
                                 msgs-union-schema @*server-schema
                                 *msg-rec-name->handler))))
             (ca/<! (ca/timeout 100))) ;; Wait for rcv-chan to be set
           (catch #?(:clj Exception :cljs js/Error) e
-            (error (str "Unexpected error in rcv-loop: "
-                        (logging/ex-msg-and-stacktrace e)))
+            (log/error (str "Unexpected error in rcv-loop: "
+                            (log/ex-msg-and-stacktrace e)))
             ;; Rate limit
             (ca/<! (ca/timeout 1000))))))))
 
@@ -459,6 +462,7 @@
                  silence-log?
                  on-connect
                  on-disconnect
+                 on-login-result
                  handlers
                  <ws-client]} (merge default-client-options options)
          *rcv-chan (atom nil)
@@ -487,7 +491,8 @@
                  get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
                  msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
                  rcv-queue-size send-queue-size silence-log? on-connect
-                 on-disconnect role msgs rpcs peer-role peer-msgs peer-rpcs
+                 on-disconnect on-login-result role msgs rpcs peer-role
+                 peer-msgs peer-rpcs
                  *url->server-fp *server-schema *rpc-id *tube-client
                  *credentials *shutdown? *rpc-id->rpc-info
                  *msg-rec-name->handler)]
