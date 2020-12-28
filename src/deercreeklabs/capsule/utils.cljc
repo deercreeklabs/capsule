@@ -1,6 +1,7 @@
 (ns deercreeklabs.capsule.utils
   (:require
    [clojure.core.async :as ca]
+   [clojure.core.async.impl.protocols :as cap]
    #?(:cljs [clojure.pprint :as pprint])
    [clojure.set :refer [subset?]]
    [clojure.string :as str]
@@ -21,6 +22,7 @@
 #?(:cljs
    (set! *warn-on-infer* true))
 
+(def Channel (s/protocol cap/Channel))
 (def Nil (s/eq nil))
 (def LancasterSchema (s/pred l/schema?))
 (def MsgName s/Keyword)
@@ -43,9 +45,9 @@
    (s/optional-key :timeout-ms) s/Int})
 (def Handler (s/=> s/Any s/Any MsgMetadata))
 (def HandlerMap {MsgName Handler})
-(def Authenticator (s/=> au/Channel SubjectId SubjectSecret))
-(def GetURLFn (s/=> au/Channel))
-(def GetCredentialsFn (s/=> au/Channel))
+(def Authenticator (s/=> Channel SubjectId SubjectSecret))
+(def GetURLFn (s/=> Channel))
+(def GetCredentialsFn (s/=> Channel))
 (def Protocol
   {:roles [(s/one Role "first-role") (s/one Role "second-role")]
    :msgs {MsgName {(s/required-key :arg) LancasterSchema

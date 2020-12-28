@@ -60,10 +60,12 @@
     [get-url get-url-timeout-ms get-credentials
      get-credentials-timeout-ms *rcv-chan send-chan reconnect-chan
      msgs-union-schema client-fp client-pcf default-rpc-timeout-ms
-     rcv-queue-size send-queue-size silence-log? on-connect on-disconnect
-     on-login-result role msgs rpcs peer-role peer-msgs peer-rpcs
-     *url->server-fp *server-schema *rpc-id *tube-client *credentials
-     *shutdown? *rpc-id->rpc-info *msg-rec-name->handler]
+     rcv-queue-size send-queue-size silence-log? on-connect
+     on-disconnect on-login-result role msgs rpcs peer-role
+     peer-msgs peer-rpcs
+     *url->server-fp *server-schema *rpc-id *tube-client
+     *credentials *shutdown? *rpc-id->rpc-info
+     *msg-rec-name->handler]
 
   ICapsuleClient
   (<send-msg [this msg-name-kw arg]
@@ -274,7 +276,8 @@
                                  (log/log* {:level level
                                             :ms (u/get-current-time-ms)
                                             :msg (str "TUBE: " msg)}))
-                        opts (cond-> {:logger logger
+                        opts (cond-> {:connect-timeout-ms wait-ms
+                                      :logger logger
                                       :on-disconnect
                                       (fn [conn code reason]
                                         (on-disconnect this)
@@ -293,8 +296,7 @@
                                                 (ca/put! rcv-chan data))}
                                <ws-client (assoc :<ws-client
                                                  <ws-client))
-                        tube-client (au/<? (tc/<tube-client
-                                            url wait-ms opts))]
+                        tube-client (au/<? (tc/<tube-client url opts))]
                     (if-not tube-client
                       (when-not @*shutdown?
                         (ca/<! (ca/timeout wait-ms))
