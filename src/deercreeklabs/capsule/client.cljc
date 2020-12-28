@@ -287,11 +287,8 @@
                                                 (connection/get-uri conn)
                                                 " disconnected: " reason
                                                 "(" code ").")))
-                                        (when-let [tube-client @*tube-client]
-                                          (tc/close tube-client)
-                                          (reset! *tube-client nil)
-                                          (when-not @*shutdown?
-                                            (ca/put! reconnect-chan true))))
+                                        (when-not @*shutdown?
+                                          (ca/put! reconnect-chan true)))
                                       :on-rcv (fn on-rcv [conn data]
                                                 (ca/put! rcv-chan data))}
                                <ws-client (assoc :<ws-client
