@@ -91,23 +91,22 @@
               default-rpc-timeout-ms))
 
   (send-msg [this msg-name-kw arg success-cb failure-cb timeout-ms]
-    (when @*shutdown?
-      (throw (ex-info "Client is shut down" {})))
-    (cond
-      (rpcs msg-name-kw)
-      (send-rpc* this msg-name-kw arg success-cb failure-cb timeout-ms)
+    (when-not @*shutdown?
+      (cond
+        (rpcs msg-name-kw)
+        (send-rpc* this msg-name-kw arg success-cb failure-cb timeout-ms)
 
-      (msgs msg-name-kw)
-      (do
-        (send-msg* this msg-name-kw arg failure-cb timeout-ms)
-        (when success-cb
-          (success-cb nil)))
+        (msgs msg-name-kw)
+        (do
+          (send-msg* this msg-name-kw arg failure-cb timeout-ms)
+          (when success-cb
+            (success-cb nil)))
 
-      :else
-      (throw
-       (ex-info (str "Role `" role "` is not a sender for msg `"
-                     msg-name-kw "`.")
-                (u/sym-map role msg-name-kw arg)))))
+        :else
+        (throw
+         (ex-info (str "Role `" role "` is not a sender for msg `"
+                       msg-name-kw "`.")
+                  (u/sym-map role msg-name-kw arg))))))
 
   (set-handler [this msg-name-kw handler]
     (u/set-handler msg-name-kw handler *msg-rec-name->handler
