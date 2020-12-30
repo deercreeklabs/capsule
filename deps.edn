@@ -2,7 +2,7 @@
  {bidi/bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
   clj-time/clj-time {:mvn/version "0.15.2"}
   deercreeklabs/lancaster {:mvn/version "0.9.4"}
-  deercreeklabs/tube {:mvn/version "0.4.2"}
+  deercreeklabs/tube {:mvn/version "0.4.3"}
   mvxcvi/puget {:mvn/version "1.3.1"}
   net.cgrand/macrovich {:mvn/version "0.2.1"}
   org.clojure/clojure {:mvn/version "1.10.1"}
@@ -34,6 +34,6 @@
   :run {:main-opts ["-m" "deercreeklabs.capsule.test-gateway"]}
 
   :test {:extra-paths ["test"]
-         :extra-deps {lambdaisland/kaocha {:mvn/version "1.0.632"}
+         :extra-deps {lambdaisland/kaocha {:mvn/version "1.0.732"}
                       lambdaisland/kaocha-cljs {:mvn/version "0.0-71"}
-                      lambdaisland/kaocha-cloverage {:mvn/version "1.0-45"}}}}}
+                      lambdaisland/kaocha-cloverage {:mvn/version "1.0.75"}}}}}
