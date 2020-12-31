@@ -2,6 +2,6 @@
 
 rm -rf target
 mkdir target
-clj -A:pack mach.pack.alpha.skinny --no-libs --project-path target/capsule.jar
+clj -A:clj:pack mach.pack.alpha.skinny --no-libs --project-path target/capsule.jar
 mvn deploy:deploy-file -Dfile=target/capsule.jar -DrepositoryId=clojars \
     -Durl=https://clojars.org/repo -DpomFile=pom.xml

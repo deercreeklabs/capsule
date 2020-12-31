@@ -282,8 +282,11 @@
                                         (on-disconnect this)
                                         (when-not silence-log?
                                           (log/info
-                                           (str "Connection to "
-                                                (connection/get-uri conn)
+                                           (str "Connection"
+                                                (when conn
+                                                  (str " to "
+                                                       (connection/get-uri
+                                                        conn)))
                                                 " disconnected: " reason
                                                 "(" code ").")))
                                         (when-not @*shutdown?

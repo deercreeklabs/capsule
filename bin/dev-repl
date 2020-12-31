@@ -1,2 +1,2 @@
 #!/bin/bash
-clj -M:dev:cider-clj
+clj -M:clj:dev:cider-clj
