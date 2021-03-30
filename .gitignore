@@ -11,5 +11,7 @@
 /out
 
 # JS stuff
+/.shadow-cljs/
 /node_modules
+/resources/public/js/test/
 package-lock.json
