@@ -9,7 +9,7 @@
     <dependency>
       <groupId>org.clojure</groupId>
       <artifactId>clojure</artifactId>
-      <version>1.10.2</version>
+      <version>1.10.3</version>
     </dependency>
     <dependency>
       <groupId>mvxcvi</groupId>
@@ -29,7 +29,7 @@
     <dependency>
       <groupId>deercreeklabs</groupId>
       <artifactId>tube</artifactId>
-      <version>0.4.6</version>
+      <version>0.4.7</version>
     </dependency>
     <dependency>
       <groupId>net.cgrand</groupId>
