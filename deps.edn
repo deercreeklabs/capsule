@@ -2,7 +2,7 @@
  {bidi/bidi {:mvn/version "2.1.6" :exclusions [prismatic/schema ring/ring-core]}
   clj-time/clj-time {:mvn/version "0.15.2"}
   deercreeklabs/lancaster {:mvn/version "0.9.10"}
-  deercreeklabs/tube {:mvn/version "0.4.7"}
+  deercreeklabs/tube {:mvn/version "0.4.8"}
   mvxcvi/puget {:mvn/version "1.3.1"}
   net.cgrand/macrovich {:mvn/version "0.2.1"}
   primitive-math/primitive-math {:mvn/version "0.1.6"}
@@ -38,8 +38,8 @@
   :test-clj {:extra-paths ["test"]
              :extra-deps {com.cognitect/test-runner
                           {:git/url "https://github.com/cognitect-labs/test-runner.git"
-                           :sha "b6b3193fcc42659d7e46ecd1884a228993441182"}}
+                           :sha "2d69f33d7980c3353b246c28f72ffeafbd9f2fab"}}
              :main-opts ["-m" "cognitect.test-runner"]}
 
   :test-cljs {:extra-paths ["test"]
-              :extra-deps {thheller/shadow-cljs {:mvn/version "2.12.5"}}}}}
+              :extra-deps {thheller/shadow-cljs {:mvn/version "2.12.6"}}}}}
